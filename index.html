@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root { 
+            --bg: #000000; 
+            --led-off: #121212; 
+            --led-on: #ffff00;
+            --grid-bg: #000000;
+        }
+        
+        html, body { 
+            height: 100%; 
+            margin: 0; 
+            background: var(--bg); 
+            font-family: Arial, sans-serif;
+        }
+        
+        .group {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 20px;
+            justify-content: center;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            height: 100%;
+            gap: 20px;
+        }
+        
+        h1 {
+            color: #fff;
+            margin: 0;
+            font-size: 2rem;
+            text-align: center;
+        }
+        
+        .status {
+            background: #333;
+            color: #fff;
+            padding: 15px 25px;
+            border-radius: 10px;
+            font-size: 16px;
+            text-align: center;
+            min-width: 300px;
+        }
+        
+        .led-board {
+            background: var(--grid-bg);
+            border: 2px solid #333;
+            border-radius: 10px;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(16, 1fr);
+            gap: 2px;
+            width: min(90vmin, 680px);
+            height: min(90vmin, 680px);
+        }
+        
+        .led {
+            background: var(--led-off);
+            border-radius: 20%;
+            width: 100%;
+            height: 100%;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .led.on {
+            background: var(--led-on);
+            box-shadow: 0 0 15px rgba(255, 255, 0, 0.6);
+        }
+        
+        .camera-preview {
+            width: min(90vmin, 680px);
+            height: min(90vmin, 680px);
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid #333;
+            position: relative;
+        }
+        
+        .camera-preview video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            display: block;
+        }
+        
+        .camera-preview canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .camera-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 10;
+        }
+        
+        .camera-status {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            z-index: 10;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        button {
+            background: #333;
+            color: #fff;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.2s ease;
+        }
+        
+        button:hover {
+            background: #555;
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        .face-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #ff0000;
+            display: inline-block;
+            margin-left: 10px;
+            animation: pulse 2s infinite;
+        }
+        
+        .face-indicator.detected {
+            background: #00ff00;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">        
+        <div class="status" id="status">
+            Loading OpenCV... <span class="face-indicator" id="faceIndicator"></span>
+        </div>
+        
+        <div class="group">
+            <div class="led-board" id="ledBoard"></div>
+            
+            <div class="camera-preview">
+                <video id="video" autoplay muted playsinline></video>
+                <canvas id="debugCanvas"></canvas>
+                <div class="camera-label">CAMERA PREVIEW</div>
+                <div class="camera-status" id="cameraStatus">Camera: Ready</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="startBtn">Start Face Detection</button>
+            <button id="stopBtn" disabled>Stop Detection</button>
+            <button id="testBtn">Test Smiley Pattern</button>
+            <button id="clearBtn">Clear All LEDs</button>
+            <button id="cameraTestBtn">Test Camera Only</button>
+        </div>
+    </div>
+
+    <!-- OpenCV.js -->
+    <script src="https://docs.opencv.org/4.8.0/opencv.js"></script>
+    <script>
+      let opencvLoaded = false;
+
+      // OpenCV is ready when this fires (not just when <script> loads)
+      Module = {
+        onRuntimeInitialized() {
+          opencvLoaded = true;
+          document.getElementById('status').innerHTML =
+            'OpenCV ready! Click Start to begin face detection. <span class="face-indicator" id="faceIndicator"></span>';
+          faceIndicator = document.getElementById('faceIndicator');
+          console.log('OpenCV runtime initialized');
+        }
+      };
+    </script>
+
+    <script>
+        let isRunning = false;
+        let video = null;
+        let canvas = null;
+        let ctx = null;
+        let leds = [];
+        let animationId = null;
+        let faceIndicator = null;
+
+        // Smiley face pattern based on Figma design
+        const SMILEY_PATTERN = [
+            // Eyes (rows 5-6, columns 6-9)
+            [5, 6], [5, 7], [5, 8], [5, 9],
+            [6, 6], [6, 7], [6, 8], [6, 9],
+            
+            // Mouth (rows 9-12, columns 5-10)
+            [9, 5], [9, 6], [9, 7], [9, 8], [9, 9], [9, 10],
+            [10, 5], [10, 6], [10, 7], [10, 8], [10, 9], [10, 10],
+            [11, 5], [11, 6], [11, 7], [11, 8], [11, 9], [11, 10],
+            [12, 5], [12, 6], [12, 7], [12, 8], [12, 9], [12, 10],
+            
+            // Face outline points
+            [4, 3], [4, 12], [7, 2], [7, 13], [8, 2], [8, 13],
+            [11, 3], [11, 12], [14, 4], [14, 11], [15, 5], [15, 10]
+        ];
+
+
+
+        function setupLEDs() {
+            const board = document.getElementById('ledBoard');
+            board.innerHTML = '';
+            leds = [];
+            
+            for (let row = 0; row < 16; row++) {
+                for (let col = 0; col < 16; col++) {
+                    const led = document.createElement('div');
+                    led.className = 'led';
+                    led.dataset.row = row;
+                    led.dataset.col = col;
+                    board.appendChild(led);
+                    leds.push(led);
+                }
+            }
+        }
+
+        function clearAllLEDs() {
+            leds.forEach(led => {
+                led.classList.remove('on');
+            });
+        }
+
+        function testSmileyPattern() {
+            clearAllLEDs();
+            
+            // Light up the smiley face pattern
+            SMILEY_PATTERN.forEach(([row, col]) => {
+                const index = row * 16 + col;
+                if (leds[index]) {
+                    leds[index].classList.add('on');
+                }
+            });
+            
+            document.getElementById('status').innerHTML = 'Smiley face pattern displayed! <span class="face-indicator" id="faceIndicator"></span>';
+            faceIndicator = document.getElementById('faceIndicator');
+        }
+
+        function mapFaceToSmiley(faceRect) {
+            if (!faceRect) {
+                clearAllLEDs();
+                if (faceIndicator) faceIndicator.classList.remove('detected');
+                return;
+            }
+
+            const { x, y, width, height } = faceRect;
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            
+            // Clear previous LEDs
+            clearAllLEDs();
+            
+            // Calculate face center and size
+            const faceCenterX = x + width / 2;
+            const faceCenterY = y + height / 2;
+            const faceSize = Math.max(width, height);
+            
+            // Map face features to smiley pattern
+            SMILEY_PATTERN.forEach(([row, col]) => {
+                const index = row * 16 + col;
+                if (leds[index]) {
+                    // Calculate intensity based on face position and size
+                    const ledCenterX = (col + 0.5) * (videoWidth / 16);
+                    const ledCenterY = (row + 0.5) * (videoHeight / 16);
+                    
+                    // Distance from face center to LED
+                    const distance = Math.sqrt(
+                        Math.pow(ledCenterX - faceCenterX, 2) + 
+                        Math.pow(ledCenterY - faceCenterY, 2)
+                    );
+                    
+                    // Normalize distance by face size
+                    const normalizedDistance = distance / faceSize;
+                    
+                    // Light up LED if it's within the face area
+                    if (normalizedDistance < 0.8) {
+                        const intensity = Math.max(0, 1 - normalizedDistance);
+                        leds[index].classList.add('on');
+                        
+                        // Adjust brightness based on intensity
+                        if (intensity > 0.5) {
+                            leds[index].style.boxShadow = `0 0 ${15 + 10 * intensity}px rgba(255, 255, 0, ${0.6 + 0.4 * intensity})`;
+                        }
+                    }
+                }
+            });
+            
+            // Update face indicator
+            if (faceIndicator) {
+                faceIndicator.classList.add('detected');
+            }
+        }
+
+        function detectFace() {
+            if (!isRunning || !opencvLoaded || !video || !canvas) return;
+            
+            try {
+                // Create canvas context if not exists
+                if (!ctx) {
+                    ctx = canvas.getContext('2d');
+                }
+                
+                // Draw video frame to canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Convert to OpenCV format
+                let src = cv.imread(canvas);
+                let gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                
+                // Simple face detection using brightness and contrast
+                let faceRect = detectFaceByBrightness(gray);
+                
+                if (faceRect) {
+                    mapFaceToSmiley(faceRect);
+                    
+                    // Draw face rectangle on canvas for debugging
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(faceRect.x, faceRect.y, faceRect.width, faceRect.height);
+                } else {
+                    clearAllLEDs();
+                    if (faceIndicator) faceIndicator.classList.remove('detected');
+                }
+                
+                // Clean up OpenCV objects
+                src.delete();
+                gray.delete();
+                
+                // Continue detection loop
+                animationId = requestAnimationFrame(detectFace);
+                
+            } catch (error) {
+                console.error('Face detection error:', error);
+                clearAllLEDs();
+                animationId = requestAnimationFrame(detectFace);
+            }
+        }
+
+        function detectFaceByBrightness(gray) {
+            try {
+                // Simple face detection based on skin tone and brightness
+                let mask = new cv.Mat();
+                cv.threshold(gray, mask, 100, 255, cv.THRESH_BINARY);
+                
+                // Find contours
+                let contours = new cv.MatVector();
+                let hierarchy = new cv.Mat();
+                cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                
+                let largestContour = null;
+                let maxArea = 0;
+                
+                for (let i = 0; i < contours.size(); i++) {
+                    const contour = contours.get(i);
+                    const area = cv.contourArea(contour);
+                    
+                    if (area > maxArea && area > 5000) { // Minimum area threshold
+                        maxArea = area;
+                        largestContour = contour;
+                    }
+                }
+                
+                if (largestContour) {
+                    const boundingRect = cv.boundingRect(largestContour);
+                    
+                    // Clean up
+                    mask.delete();
+                    contours.delete();
+                    hierarchy.delete();
+                    
+                    return {
+                        x: boundingRect.x,
+                        y: boundingRect.y,
+                        width: boundingRect.width,
+                        height: boundingRect.height
+                    };
+                }
+                
+                // Clean up
+                mask.delete();
+                contours.delete();
+                hierarchy.delete();
+                
+            } catch (error) {
+                console.error('Brightness detection error:', error);
+            }
+            
+            return null;
+        }
+
+        // Browser compatibility check
+        function checkBrowserCompatibility() {
+            const issues = [];
+            
+            // Check if we're in a secure context
+            if (!window.isSecureContext) {
+                issues.push('⚠️ Not in secure context (HTTPS required for camera access)');
+            }
+            
+            // Check getUserMedia support
+            if (!navigator.mediaDevices) {
+                issues.push('⚠️ MediaDevices API not supported');
+            } else if (!navigator.mediaDevices.getUserMedia) {
+                issues.push('⚠️ getUserMedia not supported');
+            }
+            
+            // Check OpenCV support
+            if (typeof cv === 'undefined') {
+                issues.push('⚠️ OpenCV.js not loaded');
+            }
+            
+            return issues;
+        }
+
+        async function startFaceDetection() {
+            try {
+                document.getElementById('status').innerHTML = 'Starting camera... <span class="face-indicator" id="faceIndicator"></span>';
+                faceIndicator = document.getElementById('faceIndicator');
+                
+                // Update camera status
+                const cameraStatus = document.getElementById('cameraStatus');
+                cameraStatus.textContent = 'Camera: Starting...';
+                
+                // Setup video
+                video = document.getElementById('video');
+                if (!video) {
+                    throw new Error('Video element not found');
+                }
+                
+                // Check and polyfill getUserMedia support
+                if (!navigator.mediaDevices) {
+                    // Fallback for older browsers
+                    navigator.mediaDevices = {};
+                }
+                
+                if (!navigator.mediaDevices.getUserMedia) {
+                    // Fallback for older browsers
+                    navigator.mediaDevices.getUserMedia = function(constraints) {
+                        const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+                        
+                        if (!getUserMedia) {
+                            throw new Error('Camera access not supported in this browser');
+                        }
+                        
+                        return new Promise(function(resolve, reject) {
+                            getUserMedia.call(navigator, constraints, resolve, reject);
+                        });
+                    };
+                }
+                
+                // Request camera access
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    }
+                });
+                
+                // Set video source
+                video.srcObject = stream;
+                video.style.display = 'block';
+                
+                // Wait for video to be ready
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play().then(resolve);
+                    };
+                });
+                
+                // Setup canvas for debugging
+                canvas = document.getElementById('debugCanvas');
+                if (!canvas) {
+                    canvas = document.createElement('canvas');
+                    canvas.id = 'debugCanvas';
+                    canvas.width = 640;
+                    canvas.height = 480;
+                    document.querySelector('.camera-preview').appendChild(canvas);
+                }
+                
+                // Update status
+                cameraStatus.textContent = `Camera: Active (${video.videoWidth}x${video.videoHeight})`;
+                
+                if (opencvLoaded) {
+                    document.getElementById('status').innerHTML = 'Face detection active! Move your face to see the smiley pattern light up! <span class="face-indicator" id="faceIndicator"></span>';
+                    faceIndicator = document.getElementById('faceIndicator');
+                    
+                    isRunning = true;
+                    detectFace();
+                    
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                } else {
+                    document.getElementById('status').innerHTML = 'Camera ready! Waiting for OpenCV to load... <span class="face-indicator" id="faceIndicator"></span>';
+                    faceIndicator = document.getElementById('faceIndicator');
+                }
+                
+            } catch (error) {
+                const errorMsg = error.message || 'Unknown error';
+                document.getElementById('status').innerHTML = `Camera Error: ${errorMsg} <span class="face-indicator" id="faceIndicator"></span>`;
+                faceIndicator = document.getElementById('faceIndicator');
+                
+                const cameraStatus = document.getElementById('cameraStatus');
+                cameraStatus.textContent = `Camera: Error - ${errorMsg}`;
+                cameraStatus.style.background = 'rgba(255,0,0,0.8)';
+                
+                console.error('Camera start error:', error);
+            }
+        }
+
+        async function testCameraOnly() {
+            try {
+                const cameraStatus = document.getElementById('cameraStatus');
+                cameraStatus.textContent = 'Camera: Testing...';
+                
+                // Setup video
+                video = document.getElementById('video');
+                if (!video) {
+                    throw new Error('Video element not found');
+                }
+                
+                // Check and polyfill getUserMedia support
+                if (!navigator.mediaDevices) {
+                    // Fallback for older browsers
+                    navigator.mediaDevices = {};
+                }
+                
+                if (!navigator.mediaDevices.getUserMedia) {
+                    // Fallback for older browsers
+                    navigator.mediaDevices.getUserMedia = function(constraints) {
+                        const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+                        
+                        if (!getUserMedia) {
+                            throw new Error('Camera access not supported in this browser');
+                        }
+                        
+                        return new Promise(function(resolve, reject) {
+                            getUserMedia.call(navigator, constraints, resolve, reject);
+                        });
+                    };
+                }
+                
+                // Request camera access
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    }
+                });
+                
+                // Set video source
+                video.srcObject = stream;
+                video.style.display = 'block';
+                
+                // Wait for video to be ready
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play().then(resolve);
+                    };
+                });
+                
+                cameraStatus.textContent = `Camera: Test Success (${video.videoWidth}x${video.videoHeight})`;
+                cameraStatus.style.background = 'rgba(0,255,0,0.8)';
+                
+                document.getElementById('status').innerHTML = 'Camera test successful! You should see your face in the preview. <span class="face-indicator" id="faceIndicator"></span>';
+                faceIndicator = document.getElementById('faceIndicator');
+                
+            } catch (error) {
+                const errorMsg = error.message || 'Unknown error';
+                cameraStatus.textContent = `Camera: Test Failed - ${errorMsg}`;
+                cameraStatus.style.background = 'rgba(255,0,0,0.8)';
+                
+                document.getElementById('status').innerHTML = `Camera test failed: ${errorMsg} <span class="face-indicator" id="faceIndicator"></span>`;
+                faceIndicator = document.getElementById('faceIndicator');
+                
+                console.error('Camera test error:', error);
+            }
+        }
+
+        function stopFaceDetection() {
+            isRunning = false;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            
+            if (video && video.srcObject) {
+                const tracks = video.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            
+            // Reset camera status
+            const cameraStatus = document.getElementById('cameraStatus');
+            cameraStatus.textContent = 'Camera: Ready';
+            cameraStatus.style.background = 'rgba(0,0,0,0.8)';
+            
+            clearAllLEDs();
+            document.getElementById('status').innerHTML = 'Stopped. Click Start to resume. <span class="face-indicator" id="faceIndicator"></span>';
+            faceIndicator = document.getElementById('faceIndicator');
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            setupLEDs();
+            
+            // Check browser compatibility
+            const compatibilityIssues = checkBrowserCompatibility();
+            if (compatibilityIssues.length > 0) {
+                const statusEl = document.getElementById('status');
+                statusEl.innerHTML = `Browser Issues: ${compatibilityIssues.join(' ')} <span class="face-indicator" id="faceIndicator"></span>`;
+                statusEl.style.background = '#ff6600';
+                faceIndicator = document.getElementById('faceIndicator');
+            } else {
+                document.getElementById('status').innerHTML = 'Browser compatible! Waiting for OpenCV to load... <span class="face-indicator" id="faceIndicator"></span>';
+                faceIndicator = document.getElementById('faceIndicator');
+            }
+            
+            document.getElementById('startBtn').onclick = startFaceDetection;
+            document.getElementById('stopBtn').onclick = stopFaceDetection;
+            document.getElementById('testBtn').onclick = testSmileyPattern;
+            document.getElementById('clearBtn').onclick = clearAllLEDs;
+            document.getElementById('cameraTestBtn').onclick = testCameraOnly;
+        });
+    </script>
+</body>
+</html>

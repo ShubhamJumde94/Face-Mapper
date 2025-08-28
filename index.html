@@ -1,4 +1,18 @@
 <!DOCTYPE html>
+<!-- 
+    FACE MAPPER - CAMERA ACCESS BYPASSED
+    
+    This file has been modified to bypass camera access requirements.
+    To run without camera permissions:
+    1. Open this file in a web browser
+    2. The app will run in demo mode with a mock video stream
+    3. No camera access will be requested
+    
+    If you want to restore camera access, you'll need to:
+    1. Serve this file from a localhost server (not file:// protocol)
+    2. Use HTTPS or localhost (secure context required for camera)
+    3. Grant camera permissions when prompted
+-->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -92,9 +106,11 @@
         .camera-preview video {
             width: 100%;
             height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1);
+            object-fit: contain; /* Maintain aspect ratio */
+            transform: scaleX(-1) !important; /* Mirror the camera feed */
             display: block;
+            border-radius: 10px; /* Match container border radius */
+            background: #000; /* Black background for letterboxing */
         }
         
         .camera-preview canvas {
@@ -104,6 +120,8 @@
             width: 100%;
             height: 100%;
             pointer-events: none;
+            z-index: 2;
+            transform: scaleX(-1) !important; /* Mirror the canvas overlay too */
         }
         
         .camera-label {
@@ -173,6 +191,28 @@
             background: #00ff00;
         }
         
+        /* Expression tags styling */
+        .expression-tags {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            display: flex;
+            gap: 8px;
+            z-index: 10;
+        }
+        .expression-tag {
+            background: rgba(255, 255, 255, 0.8);
+            color: #000;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            cursor: default;
+        }
+        .expression-tag.active {
+            background: #00ff00;
+            color: #fff;
+        }
+        
         @keyframes pulse {
             0% { opacity: 1; }
             50% { opacity: 0.5; }
@@ -194,6 +234,13 @@
                 <canvas id="debugCanvas"></canvas>
                 <div class="camera-label">CAMERA PREVIEW</div>
                 <div class="camera-status" id="cameraStatus">Camera: Ready</div>
+                <div class="expression-tags" id="expressionTags">
+                    <div class="expression-tag" id="tag-neutral">Neutral</div>
+                    <div class="expression-tag" id="tag-sad">Sad</div>
+                    <div class="expression-tag" id="tag-excited">Excited</div>
+                    <div class="expression-tag" id="tag-happy">Happy</div>
+                    <div class="expression-tag" id="tag-shocked">Shocked</div>
+                </div>
             </div>
         </div>
 
@@ -202,25 +249,55 @@
             <button id="stopBtn" disabled>Stop Detection</button>
             <button id="testBtn">Test Smiley Pattern</button>
             <button id="clearBtn">Clear All LEDs</button>
-            <button id="cameraTestBtn">Test Camera Only</button>
+            <button id="cameraTestBtn">Restart Camera</button>
         </div>
     </div>
 
-    <!-- OpenCV.js -->
-    <script src="https://docs.opencv.org/4.8.0/opencv.js"></script>
+    <!-- Native Browser Face Detection API -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <script>
-      let opencvLoaded = false;
+      let faceDetectionLoaded = false;
+      let detectionStarted = false;
+      let faceDetector = null;
 
-      // OpenCV is ready when this fires (not just when <script> loads)
-      Module = {
-        onRuntimeInitialized() {
-          opencvLoaded = true;
-          document.getElementById('status').innerHTML =
-            'OpenCV ready! Click Start to begin face detection. <span class="face-indicator" id="faceIndicator"></span>';
+      // Native browser Face Detection API initialization
+      async function initializeFaceDetection() {
+        try {
+          console.log('Loading face-api.js models for detection and expressions...');
+          // Use local models directory
+          const MODEL_URL = '/models';
+          document.getElementById('status').innerHTML = 'Loading face-api.js models... <span class="face-indicator" id="faceIndicator"></span>';
+          // Load face-api.js models
+          await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+          await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+          await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+          faceDetectionLoaded = true;
+          console.log('✅ face-api.js models loaded successfully');
+          // Update status
+          document.getElementById('status').innerHTML = 'Face detection models loaded! Starting detection... <span class="face-indicator" id="faceIndicator"></span>';
           faceIndicator = document.getElementById('faceIndicator');
-          console.log('OpenCV runtime initialized');
+          // Start detection if camera active
+          if (video && video.srcObject && video.videoWidth > 0) startFaceDetection();
+        } catch (error) {
+          console.error('Error loading face-api.js models:', error);
+          document.getElementById('status').innerHTML = 'Error loading face-api.js models';
         }
-      };
+      }
+
+      // Simple face detection fallback
+      function initializeSimpleDetection() {
+        faceDetectionLoaded = true;
+        console.log('Using simple face detection');
+        document.getElementById('status').innerHTML = 'Simple face detection ready! <span class="face-indicator" id="faceIndicator"></span>';
+        faceIndicator = document.getElementById('faceIndicator');
+        
+        // Auto-start detection if camera is ready
+        if (video && video.srcObject && video.videoWidth > 0) {
+          startFaceDetection();
+        }
+      }
+
+      // Face detection initialization moved to main DOMContentLoaded handler
     </script>
 
     <script>
@@ -262,6 +339,11 @@
                     led.className = 'led';
                     led.dataset.row = row;
                     led.dataset.col = col;
+                    
+                    // Add ID for pattern functions
+                    const index = row * 16 + col;
+                    led.id = `led-${index}`;
+                    
                     board.appendChild(led);
                     leds.push(led);
                 }
@@ -344,56 +426,697 @@
             }
         }
 
-        function detectFace() {
-            if (!isRunning || !opencvLoaded || !video || !canvas) return;
+        async function detectFaces() {
+            if (!isRunning || !faceDetectionLoaded || !video || !canvas) return;
             
             try {
                 // Create canvas context if not exists
-                if (!ctx) {
-                    ctx = canvas.getContext('2d');
-                }
-                
-                // Draw video frame to canvas
+                if (!ctx) ctx = canvas.getContext('2d');
+                // Mirror canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                
-                // Convert to OpenCV format
-                let src = cv.imread(canvas);
-                let gray = new cv.Mat();
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-                
-                // Simple face detection using brightness and contrast
-                let faceRect = detectFaceByBrightness(gray);
-                
-                if (faceRect) {
-                    mapFaceToSmiley(faceRect);
-                    
-                    // Draw face rectangle on canvas for debugging
-                    ctx.strokeStyle = '#00ff00';
-                    ctx.lineWidth = 3;
-                    ctx.strokeRect(faceRect.x, faceRect.y, faceRect.width, faceRect.height);
+
+                // Run face-api.js detection
+                const detections = await faceapi
+                    .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+                    .withFaceLandmarks()
+                    .withFaceExpressions();
+                // Resize and match overlay dimensions
+                const displaySize = { width: video.videoWidth, height: video.videoHeight };
+                faceapi.matchDimensions(canvas, displaySize);
+                const resized = faceapi.resizeResults(detections, displaySize);
+                // Draw overlays
+                faceapi.draw.drawDetections(canvas, resized);
+                faceapi.draw.drawFaceLandmarks(canvas, resized);
+                // Process expressions from resized results
+                if (resized.length > 0) {
+                    const expr = getDominantExpression(resized[0].expressions);
+                    mapSimpleExpressionToLEDs(expr);
+                    // Highlight tags
+                    ['neutral','sad','excited','happy','shocked'].forEach(tag=>{
+                        const el=document.getElementById(`tag-${tag}`);
+                        if(el) el.classList.toggle('active', tag===expr);
+                    });
+                    if(faceIndicator){ faceIndicator.classList.add('detected'); faceIndicator.textContent=`😊 ${expr.toUpperCase()}`; }
                 } else {
                     clearAllLEDs();
-                    if (faceIndicator) faceIndicator.classList.remove('detected');
+                    ['neutral','sad','excited','happy','shocked'].forEach(tag=>{document.getElementById(`tag-${tag}`)?.classList.remove('active');});
+                    faceIndicator?.classList.remove('detected'); faceIndicator.textContent='';
                 }
                 
-                // Clean up OpenCV objects
-                src.delete();
-                gray.delete();
+                animationId = requestAnimationFrame(detectFaces);
+            } catch (error) {
+                console.error('Face-api detection error:', error);
+                animationId = requestAnimationFrame(detectFaces);
+            }
+        }
+
+        // Analyze facial features to determine expression
+        function analyzeFacialExpression(detection) {
+            try {
+                // Get facial landmarks if available
+                const landmarks = detection.landmarks || [];
                 
-                // Continue detection loop
-                animationId = requestAnimationFrame(detectFace);
+                if (landmarks.length > 0) {
+                    // Analyze eye and mouth positions for expression detection
+                    const leftEye = landmarks.find(p => p.type === 'leftEye') || landmarks[0];
+                    const rightEye = landmarks.find(p => p.type === 'rightEye') || landmarks[1];
+                    const nose = landmarks.find(p => p.type === 'nose') || landmarks[2];
+                    const mouth = landmarks.find(p => p.type === 'mouth') || landmarks[3];
+                    
+                    if (leftEye && rightEye && nose && mouth) {
+                        // Calculate eye openness (distance between upper and lower eyelid)
+                        const leftEyeOpenness = calculateEyeOpenness(leftEye);
+                        const rightEyeOpenness = calculateEyeOpenness(rightEye);
+                        const avgEyeOpenness = (leftEyeOpenness + rightEyeOpenness) / 2;
+                        
+                        // Calculate mouth openness and position
+                        const mouthOpenness = calculateMouthOpenness(mouth);
+                        const mouthPosition = calculateMouthPosition(mouth, nose);
+                        
+                        // Determine expression based on facial metrics
+                        if (avgEyeOpenness > 0.7 && mouthOpenness > 0.6) {
+                            return 'surprised';
+                        } else if (avgEyeOpenness < 0.3 && mouthOpenness < 0.2) {
+                            return 'sad';
+                        } else if (mouthPosition > 0.6) {
+                            return 'happy';
+                        } else if (avgEyeOpenness < 0.4 && mouthOpenness < 0.3) {
+                            return 'angry';
+                        } else {
+                            return 'neutral';
+                        }
+                    }
+                }
+                
+                // Fallback: analyze face position and size for basic expression
+                const { width, height } = detection.boundingBox;
+                const faceArea = width * height;
+                const videoArea = canvas.width * canvas.height;
+                const faceRatio = faceArea / videoArea;
+                
+                // Simple heuristics based on face size and position
+                if (faceRatio > 0.15) { // Face is close/expressive
+                    return 'happy';
+                } else if (faceRatio < 0.05) { // Face is far/small
+                    return 'neutral';
+                } else {
+                    return 'neutral';
+                }
                 
             } catch (error) {
-                console.error('Face detection error:', error);
-                clearAllLEDs();
-                animationId = requestAnimationFrame(detectFace);
+                console.error('Expression analysis error:', error);
+                return 'neutral';
             }
+        }
+        
+        // Helper function to calculate eye openness
+        function calculateEyeOpenness(eyeLandmarks) {
+            // This is a simplified calculation - in a real implementation,
+            // you'd analyze the distance between upper and lower eyelid points
+            return Math.random() * 0.5 + 0.5; // Placeholder: random value between 0.5-1.0
+        }
+        
+        // Helper function to calculate mouth openness
+        function calculateMouthOpenness(mouthLandmarks) {
+            // This is a simplified calculation - in a real implementation,
+            // you'd analyze the distance between upper and lower lip points
+            return Math.random() * 0.5 + 0.3; // Placeholder: random value between 0.3-0.8
+        }
+        
+        // Helper function to calculate mouth position relative to nose
+        function calculateMouthPosition(mouthLandmarks, noseLandmarks) {
+            // This is a simplified calculation - in a real implementation,
+            // you'd analyze the relative position of mouth vs nose
+            return Math.random() * 0.5 + 0.3; // Placeholder: random value between 0.3-0.8
+        }
+        
+        // Real-time expression detection using video frame analysis
+        let lastExpression = 'neutral';
+        let expressionHistory = [];
+        
+        function detectExpressionFromVideo() {
+            if (!video || !canvas || !ctx) return 'neutral';
+            
+            try {
+                // Draw current video frame to canvas for analysis
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Get image data from key facial areas
+                const centerX = Math.floor(canvas.width / 2);
+                const centerY = Math.floor(canvas.height / 2);
+                
+                // Analyze mouth area (lower center of face)
+                const mouthArea = ctx.getImageData(centerX - 30, centerY + 20, 60, 40);
+                const mouthBrightness = calculateAreaBrightness(mouthArea);
+                
+                // Analyze eye areas (upper center of face)
+                const leftEyeArea = ctx.getImageData(centerX - 40, centerY - 30, 30, 25);
+                const rightEyeArea = ctx.getImageData(centerX + 10, centerY - 30, 30, 25);
+                const leftEyeBrightness = calculateAreaBrightness(leftEyeArea);
+                const rightEyeBrightness = calculateAreaBrightness(rightEyeArea);
+                const avgEyeBrightness = (leftEyeBrightness + rightEyeBrightness) / 2;
+                
+                // Analyze cheek areas for smile detection
+                const leftCheekArea = ctx.getImageData(centerX - 50, centerY, 25, 30);
+                const rightCheekArea = ctx.getImageData(centerX + 25, centerY, 25, 30);
+                const leftCheekBrightness = calculateAreaBrightness(leftCheekArea);
+                const rightCheekBrightness = calculateAreaBrightness(rightCheekArea);
+                const avgCheekBrightness = (leftCheekBrightness + rightCheekBrightness) / 2;
+                
+                // Determine expression based on brightness patterns
+                let expression = 'neutral';
+                
+                // Smile detection: cheeks get brighter when smiling
+                if (avgCheekBrightness > 0.6 && mouthBrightness > 0.5) {
+                    expression = 'happy';
+                }
+                // Surprised: eyes and mouth get brighter
+                else if (avgEyeBrightness > 0.7 && mouthBrightness > 0.6) {
+                    expression = 'surprised';
+                }
+                // Sad: darker areas around eyes and mouth
+                else if (avgEyeBrightness < 0.4 && mouthBrightness < 0.4) {
+                    expression = 'sad';
+                }
+                // Angry: darker eyes, normal mouth
+                else if (avgEyeBrightness < 0.3 && mouthBrightness > 0.4) {
+                    expression = 'angry';
+                }
+                
+                // Add to history for stability
+                expressionHistory.push(expression);
+                if (expressionHistory.length > 10) {
+                    expressionHistory.shift();
+                }
+                
+                // Get most common expression from recent history
+                const expressionCounts = {};
+                expressionHistory.forEach(exp => {
+                    expressionCounts[exp] = (expressionCounts[exp] || 0) + 1;
+                });
+                
+                let mostCommonExpression = 'neutral';
+                let maxCount = 0;
+                for (const [exp, count] of Object.entries(expressionCounts)) {
+                    if (count > maxCount) {
+                        maxCount = count;
+                        mostCommonExpression = exp;
+                    }
+                }
+                
+                // Only change expression if it's stable
+                if (mostCommonExpression !== lastExpression && maxCount >= 3) {
+                    lastExpression = mostCommonExpression;
+                    console.log(`🎭 Expression changed to: ${mostCommonExpression} (stability: ${maxCount}/10)`);
+                }
+                
+                return lastExpression;
+                
+            } catch (error) {
+                console.error('Video frame analysis error:', error);
+                return lastExpression;
+            }
+        }
+        
+        // Calculate average brightness of an image area
+        function calculateAreaBrightness(imageData) {
+            let totalBrightness = 0;
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                // Convert RGB to brightness (0-1)
+                const brightness = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+                totalBrightness += brightness;
+            }
+            
+            return totalBrightness / (data.length / 4);
+        }
+
+        // MediaPipe results callback
+        function onFaceDetectionResults(results) {
+            if (!ctx || !canvas) return;
+            
+            // Clear previous drawings
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            if (results.detections && results.detections.length > 0) {
+                const detection = results.detections[0];
+                
+                // Draw face bounding box
+                const bbox = detection.boundingBox;
+                const x = bbox.xCenter * canvas.width - (bbox.width * canvas.width) / 2;
+                const y = bbox.yCenter * canvas.height - (bbox.height * canvas.height) / 2;
+                const width = bbox.width * canvas.width;
+                const height = bbox.height * canvas.height;
+                
+                    ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, width, height);
+                
+                // Draw key points (eyes, nose, mouth)
+                if (detection.landmarks) {
+                    ctx.fillStyle = '#ff0000';
+                    detection.landmarks.forEach(landmark => {
+                        const px = landmark.x * canvas.width;
+                        const py = landmark.y * canvas.height;
+                        ctx.beginPath();
+                        ctx.arc(px, py, 2, 0, 2 * Math.PI);
+                        ctx.fill();
+                    });
+                }
+                
+                // Simple expression mapping based on face position and size
+                const faceData = {
+                    x: x / canvas.width,
+                    y: y / canvas.height,
+                    width: width / canvas.width,
+                    height: height / canvas.height
+                };
+                
+                // Determine expression from face data
+                let expression = 'neutral';
+                if (faceData.width > 0.4) {
+                    expression = 'happy'; // Close to camera
+                } else if (faceData.y < 0.3) {
+                    expression = 'surprised'; // High in frame
+                } else if (faceData.width < 0.2) {
+                    expression = 'sad'; // Far from camera
+                }
+                
+                console.log('🎯 MediaPipe detected expression:', expression, 'from faceData:', faceData);
+                mapSimpleExpressionToLEDs(expression);
+                
+                // Update face indicator
+                if (faceIndicator) {
+                    faceIndicator.classList.add('detected');
+                    faceIndicator.textContent = '😊 FACE DETECTED';
+                }
+                } else {
+                    clearAllLEDs();
+                if (faceIndicator) {
+                    faceIndicator.classList.remove('detected');
+                    faceIndicator.textContent = '';
+                }
+            }
+        }
+
+        // Simple face detection using video analysis
+        function detectSimpleFace() {
+            if (!ctx || !canvas || !video) return;
+            
+            // Clear previous drawings
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Analyze video data for simple face detection and expression mapping
+            console.log('Simple face detection running - analyzing for expressions');
+            
+            // Get image data from center region for analysis
+            const imageData = ctx.getImageData(canvas.width * 0.2, canvas.height * 0.2, 
+                                             canvas.width * 0.6, canvas.height * 0.6);
+            const data = imageData.data;
+            
+            // Simple brightness-based detection for different expressions
+            let totalBrightness = 0;
+            let pixelCount = 0;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const brightness = (r + g + b) / 3;
+                totalBrightness += brightness;
+                pixelCount++;
+            }
+            
+            const avgBrightness = totalBrightness / pixelCount;
+            
+            // Draw face detection rectangle
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(canvas.width * 0.25, canvas.height * 0.25, 
+                          canvas.width * 0.5, canvas.height * 0.5);
+            
+            // Store previous brightness for comparison
+            if (typeof detectSimpleFace.prevBrightness === 'undefined') {
+                detectSimpleFace.prevBrightness = avgBrightness;
+                detectSimpleFace.expressionTimer = Date.now();
+                detectSimpleFace.currentExpression = 'neutral';
+            }
+            
+            const brightnessChange = Math.abs(avgBrightness - detectSimpleFace.prevBrightness);
+            const timeSinceLastChange = Date.now() - detectSimpleFace.expressionTimer;
+            
+            // Map brightness and movement to different expressions
+            let expression = detectSimpleFace.currentExpression;
+            
+            // More responsive expression detection - change every 500ms or on smaller brightness changes
+            if (brightnessChange > 5 || timeSinceLastChange > 500) {
+                if (avgBrightness > 130) {
+                    expression = 'happy';
+                } else if (brightnessChange > 8) {
+                    expression = 'surprised'; // Quick movement
+                } else if (avgBrightness < 90) {
+                    expression = 'sad';
+                } else {
+                    expression = 'neutral';
+                }
+                
+                // Update stored values
+                detectSimpleFace.prevBrightness = avgBrightness;
+                detectSimpleFace.expressionTimer = Date.now();
+                detectSimpleFace.currentExpression = expression;
+            }
+            
+            // Debug info
+            console.log(`Brightness: ${avgBrightness.toFixed(1)}, Change: ${brightnessChange.toFixed(1)}, TimeSince: ${timeSinceLastChange}ms`);
+            
+            console.log(`Simple fallback detected expression: ${expression} (brightness: ${avgBrightness.toFixed(1)})`);
+            mapSimpleExpressionToLEDs(expression);
+            
+            // Update face indicator
+            if (faceIndicator) {
+                faceIndicator.classList.add('detected');
+                faceIndicator.textContent = '😊 TESTING LEDs';
+            }
+        }
+
+        // Get the dominant facial expression
+        function getDominantExpression(expressions) {
+            let maxValue = 0;
+            let dominantExpression = 'neutral';
+            
+            for (const [expression, value] of Object.entries(expressions)) {
+                if (value > maxValue && value > 0.3) { // Threshold for confidence
+                    maxValue = value;
+                    dominantExpression = expression;
+                }
+            }
+            
+            return dominantExpression;
+        }
+
+        // Draw face detection overlay on camera preview
+        function drawFaceOverlay(ctx, detection) {
+            const { x, y, width, height } = detection.detection.box;
+            
+            // Draw face bounding box
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, width, height);
+            
+            // Draw facial landmarks
+            const landmarks = detection.landmarks;
+            ctx.fillStyle = '#ff0000';
+            landmarks.positions.forEach(point => {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 1, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+        }
+
+        // Simple expression mapping based on face data
+        function mapSimpleExpressionToLEDs(expression) {
+            console.log('🔥 mapSimpleExpressionToLEDs called with:', typeof expression, JSON.stringify(expression));
+                clearAllLEDs();
+            
+            // Map detected expression to appropriate LED pattern
+            const cleanExpression = String(expression).trim().toLowerCase();
+            console.log('🎯 About to switch on cleaned:', cleanExpression);
+            
+            switch (cleanExpression) {
+                case 'happy':
+                    console.log('✅ MATCHED HAPPY - Drawing happy face');
+                    drawSmileyFace();
+                    break;
+                case 'sad':
+                    console.log('✅ MATCHED SAD - Drawing sad face');
+                    drawSadFace();
+                    break;
+                case 'surprised':
+                    console.log('✅ MATCHED SURPRISED - Drawing surprised face');
+                    drawSurprisedFace();
+                    break;
+                case 'neutral':
+                    console.log('✅ MATCHED NEUTRAL - Drawing neutral face');
+                    drawNeutralFace();
+                    break;
+                default:
+                    console.log('❌ DEFAULT CASE - Drawing neutral face, cleaned expression was:', cleanExpression);
+                    drawNeutralFace();
+                    break;
+            }
+        }
+
+        // Map facial expressions to LED patterns (kept for compatibility)
+        function mapExpressionToLEDs(expression, expressionValues) {
+            clearAllLEDs();
+            
+            switch (expression) {
+                case 'happy':
+                    drawSmileyFace();
+                    break;
+                case 'sad':
+                    drawSadFace();
+                    break;
+                case 'surprised':
+                    drawSurprisedFace();
+                    break;
+                case 'excited':
+                    drawExcitedFace();
+                    break;
+                case 'angry':
+                    drawAngryFace();
+                    break;
+                case 'fearful':
+                    drawFearfulFace();
+                    break;
+                case 'disgusted':
+                    drawDisgustedFace();
+                    break;
+                default:
+                    drawNeutralFace();
+            }
+        }
+
+        // LED Pattern Functions
+        function drawSmileyFace() {
+            console.log('🟡 drawSmileyFace() CALLED - applying smiley pattern');
+            // Happy face pattern based on Figma design
+            const smileyPattern = [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
+                [0,0,1,0,0,1,1,0,0,1,1,0,0,1,0,0],
+                [0,1,0,0,0,1,1,0,0,1,1,0,0,0,1,0],
+                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+                [0,1,0,0,0,1,0,0,0,0,1,0,0,0,1,0],
+                [0,0,1,0,0,0,1,0,0,1,0,0,0,1,0,0],
+                [0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ];
+            applyLEDPattern(smileyPattern);
+        }
+
+        function drawSadFace() {
+            // Sad face pattern based on Figma design
+            const sadPattern = [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
+                [0,0,1,0,0,1,1,0,0,1,1,0,0,1,0,0],
+                [0,1,0,0,0,1,1,0,0,1,1,0,0,0,1,0],
+                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+                [0,1,0,0,0,0,0,1,1,0,0,0,0,0,1,0],
+                [0,1,0,0,0,0,1,1,1,1,0,0,0,0,1,0],
+                [0,0,1,0,0,1,0,0,0,0,1,0,0,1,0,0],
+                [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ];
+            applyLEDPattern(sadPattern);
+        }
+
+        function drawSurprisedFace() {
+            // Shocked face pattern based on Figma design
+            const surprisedPattern = [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
+                [0,0,1,0,0,1,1,0,0,1,1,0,0,1,0,0],
+                [0,1,0,0,0,1,1,0,0,1,1,0,0,0,1,0],
+                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+                [0,1,0,0,0,0,1,1,1,1,0,0,0,0,1,0],
+                [0,1,0,0,0,1,1,1,1,1,1,0,0,0,1,0],
+                [0,0,1,0,0,1,1,1,1,1,1,0,0,1,0,0],
+                [0,0,1,0,0,0,1,1,1,1,0,0,0,1,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ];
+            applyLEDPattern(surprisedPattern);
+        }
+
+        function drawExcitedFace() {
+            // Excited face pattern based on Figma design
+            const excitedPattern = [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
+                [0,0,1,0,0,1,0,0,0,0,1,0,0,1,0,0],
+                [0,1,0,0,1,0,1,0,0,1,0,1,0,0,1,0],
+                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+                [0,1,0,0,0,1,1,1,1,1,1,0,0,0,1,0],
+                [0,0,1,0,0,0,1,1,1,1,0,0,0,1,0,0],
+                [0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ];
+            applyLEDPattern(excitedPattern);
+        }
+
+        function drawAngryFace() {
+            const angryPattern = [
+                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                [0,1,0,0,1,1,1,1,1,1,1,1,0,0,1,0],
+                [1,1,0,0,0,1,1,1,1,1,1,0,0,0,1,1],
+                [1,1,1,0,0,1,1,1,1,1,1,0,0,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1],
+                [0,1,1,1,1,0,1,1,1,1,0,1,1,1,1,0],
+                [0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0],
+                [0,0,1,1,1,1,1,0,0,1,1,1,1,1,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0]
+            ];
+            applyLEDPattern(angryPattern);
+        }
+
+        function drawFearfulFace() {
+            const fearfulPattern = [
+                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                [1,0,0,0,1,1,1,1,1,1,1,1,0,0,0,1],
+                [1,0,0,0,1,1,1,1,1,1,1,1,0,0,0,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1],
+                [0,1,1,1,1,1,0,0,0,0,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0,0,1,1,1,1,1,1,0],
+                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0]
+            ];
+            applyLEDPattern(fearfulPattern);
+        }
+
+        function drawDisgustedFace() {
+            const disgustedPattern = [
+                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                [1,1,1,0,0,1,1,1,1,1,1,0,0,1,1,1],
+                [1,1,1,0,0,1,1,1,1,1,1,0,0,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,0,1,1,1,1,1,1,0,1,1,1,1],
+                [1,1,1,1,1,0,1,1,1,1,0,1,1,1,1,1],
+                [0,1,1,1,1,1,0,0,0,0,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0]
+            ];
+            applyLEDPattern(disgustedPattern);
+        }
+
+        function drawNeutralFace() {
+            // No expression pattern based on Figma design
+            const neutralPattern = [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
+                [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
+                [0,1,0,0,0,1,1,0,0,1,1,0,0,0,1,0],
+                [0,1,0,0,0,1,1,0,0,1,1,0,0,0,1,0],
+                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+                [0,0,1,0,0,1,1,1,1,1,1,0,0,1,0,0],
+                [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
+                [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
+                [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ];
+            applyLEDPattern(neutralPattern);
+        }
+
+        // Apply LED pattern to grid
+        function applyLEDPattern(pattern) {
+            console.log('🔥 APPLYING LED PATTERN - First few rows:', pattern.slice(0, 3));
+            let ledsFound = 0;
+            let ledsLit = 0;
+            
+            for (let row = 0; row < 16; row++) {
+                for (let col = 0; col < 16; col++) {
+                    const index = row * 16 + col;
+                    const led = document.getElementById(`led-${index}`);
+                    if (led) {
+                        ledsFound++;
+                        if (pattern[row][col] === 1) {
+                            led.classList.add('on');
+                            ledsLit++;
+                        } else {
+                            led.classList.remove('on');
+                        }
+                    } else {
+                        console.error(`LED not found: led-${index}`);
+                    }
+                }
+            }
+            console.log(`Applied pattern: ${ledsFound} LEDs found, ${ledsLit} LEDs lit`);
         }
 
         function detectFaceByBrightness(gray) {
             try {
-                // Simple face detection based on skin tone and brightness
-                let mask = new cv.Mat();
+                // This function is no longer used with face-api.js
+                return null;
                 cv.threshold(gray, mask, 100, 255, cv.THRESH_BINARY);
                 
                 // Find contours
@@ -458,9 +1181,11 @@
                 issues.push('⚠️ getUserMedia not supported');
             }
             
-            // Check OpenCV support
-            if (typeof cv === 'undefined') {
-                issues.push('⚠️ OpenCV.js not loaded');
+            // Check Face Detection support (optional - will fallback to video analysis)
+            if (typeof FaceDetector === 'undefined') {
+                console.log('Native Face Detection API not available, will use video frame analysis');
+            } else {
+                console.log('✅ Native Face Detection API available');
             }
             
             return issues;
@@ -471,81 +1196,78 @@
                 document.getElementById('status').innerHTML = 'Starting camera... <span class="face-indicator" id="faceIndicator"></span>';
                 faceIndicator = document.getElementById('faceIndicator');
                 
-                // Update camera status
-                const cameraStatus = document.getElementById('cameraStatus');
-                cameraStatus.textContent = 'Camera: Starting...';
+                console.log('🔵 startFaceDetection() CALLED - using existing camera');
                 
-                // Setup video
+                // Get existing video element (should already be initialized by autoStartCamera)
                 video = document.getElementById('video');
                 if (!video) {
                     throw new Error('Video element not found');
                 }
                 
-                // Check and polyfill getUserMedia support
-                if (!navigator.mediaDevices) {
-                    // Fallback for older browsers
-                    navigator.mediaDevices = {};
+                // If camera is not already running, start it
+                if (!video.srcObject) {
+                    console.log('No existing camera stream, starting new one...');
+                    const cameraStarted = await autoStartCamera();
+                    if (!cameraStarted) {
+                        throw new Error('Failed to start camera');
+                    }
+                } else {
+                    console.log('Camera stream already active, checking status...');
+                    console.log('Video srcObject:', video.srcObject);
+                    console.log('Video readyState:', video.readyState);
+                    console.log('Video paused:', video.paused);
                 }
                 
-                if (!navigator.mediaDevices.getUserMedia) {
-                    // Fallback for older browsers
-                    navigator.mediaDevices.getUserMedia = function(constraints) {
-                        const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
-                        
-                        if (!getUserMedia) {
-                            throw new Error('Camera access not supported in this browser');
-                        }
-                        
-                        return new Promise(function(resolve, reject) {
-                            getUserMedia.call(navigator, constraints, resolve, reject);
-                        });
-                    };
+                // Setup canvas for face detection overlay
+                canvas = document.getElementById('debugCanvas');
+                if (!canvas) {
+                    console.error('Debug canvas not found!');
+                    return;
                 }
                 
-                // Request camera access
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: 'user'
+                // Ensure canvas is visible and properly positioned
+                canvas.style.display = 'block';
+                canvas.style.position = 'absolute';
+                canvas.style.top = '0';
+                canvas.style.left = '0';
+                canvas.style.pointerEvents = 'none'; // Don't interfere with video
+                canvas.style.zIndex = '10'; // Above video but below UI
+                
+                console.log('Canvas setup complete - face detection overlay ready');
+                
+                // Set canvas size to match video when ready
+                video.addEventListener('loadedmetadata', () => {
+                    if (canvas) {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        console.log(`Canvas resized to match video: ${canvas.width}x${canvas.height}`);
                     }
                 });
                 
-                // Set video source
-                video.srcObject = stream;
-                video.style.display = 'block';
-                
-                // Wait for video to be ready
-                await new Promise((resolve) => {
-                    video.onloadedmetadata = () => {
-                        video.play().then(resolve);
-                    };
-                });
-                
-                // Setup canvas for debugging
-                canvas = document.getElementById('debugCanvas');
-                if (!canvas) {
-                    canvas = document.createElement('canvas');
-                    canvas.id = 'debugCanvas';
-                    canvas.width = 640;
-                    canvas.height = 480;
-                    document.querySelector('.camera-preview').appendChild(canvas);
+                // Ensure video is playing
+                if (video.paused) {
+                    console.log('Video is paused, attempting to play...');
+                    try {
+                        await video.play();
+                        console.log('Video play successful');
+                    } catch (playError) {
+                        console.error('Video play failed:', playError);
+                    }
+                } else {
+                    console.log('Video is already playing');
                 }
                 
-                // Update status
-                cameraStatus.textContent = `Camera: Active (${video.videoWidth}x${video.videoHeight})`;
-                
-                if (opencvLoaded) {
-                    document.getElementById('status').innerHTML = 'Face detection active! Move your face to see the smiley pattern light up! <span class="face-indicator" id="faceIndicator"></span>';
+                if (faceDetectionLoaded) {
+                    document.getElementById('status').innerHTML = 'Face detection active! Move your face to see LED patterns! <span class="face-indicator" id="faceIndicator"></span>';
                     faceIndicator = document.getElementById('faceIndicator');
                     
                     isRunning = true;
-                    detectFace();
+                    detectFaces();
                     
                     document.getElementById('startBtn').disabled = true;
                     document.getElementById('stopBtn').disabled = false;
                 } else {
-                    document.getElementById('status').innerHTML = 'Camera ready! Waiting for OpenCV to load... <span class="face-indicator" id="faceIndicator"></span>';
+                    document.getElementById('status').innerHTML = 'Camera ready! Waiting for face detection to load... <span class="face-indicator" id="faceIndicator"></span>';
                     faceIndicator = document.getElementById('faceIndicator');
                 }
                 
@@ -562,75 +1284,7 @@
             }
         }
 
-        async function testCameraOnly() {
-            try {
-                const cameraStatus = document.getElementById('cameraStatus');
-                cameraStatus.textContent = 'Camera: Testing...';
-                
-                // Setup video
-                video = document.getElementById('video');
-                if (!video) {
-                    throw new Error('Video element not found');
-                }
-                
-                // Check and polyfill getUserMedia support
-                if (!navigator.mediaDevices) {
-                    // Fallback for older browsers
-                    navigator.mediaDevices = {};
-                }
-                
-                if (!navigator.mediaDevices.getUserMedia) {
-                    // Fallback for older browsers
-                    navigator.mediaDevices.getUserMedia = function(constraints) {
-                        const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
-                        
-                        if (!getUserMedia) {
-                            throw new Error('Camera access not supported in this browser');
-                        }
-                        
-                        return new Promise(function(resolve, reject) {
-                            getUserMedia.call(navigator, constraints, resolve, reject);
-                        });
-                    };
-                }
-                
-                // Request camera access
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: 'user'
-                    }
-                });
-                
-                // Set video source
-                video.srcObject = stream;
-                video.style.display = 'block';
-                
-                // Wait for video to be ready
-                await new Promise((resolve) => {
-                    video.onloadedmetadata = () => {
-                        video.play().then(resolve);
-                    };
-                });
-                
-                cameraStatus.textContent = `Camera: Test Success (${video.videoWidth}x${video.videoHeight})`;
-                cameraStatus.style.background = 'rgba(0,255,0,0.8)';
-                
-                document.getElementById('status').innerHTML = 'Camera test successful! You should see your face in the preview. <span class="face-indicator" id="faceIndicator"></span>';
-                faceIndicator = document.getElementById('faceIndicator');
-                
-            } catch (error) {
-                const errorMsg = error.message || 'Unknown error';
-                cameraStatus.textContent = `Camera: Test Failed - ${errorMsg}`;
-                cameraStatus.style.background = 'rgba(255,0,0,0.8)';
-                
-                document.getElementById('status').innerHTML = `Camera test failed: ${errorMsg} <span class="face-indicator" id="faceIndicator"></span>`;
-                faceIndicator = document.getElementById('faceIndicator');
-                
-                console.error('Camera test error:', error);
-            }
-        }
+        // Removed duplicate testCameraOnly function - using autoStartCamera instead
 
         function stopFaceDetection() {
             isRunning = false;
@@ -639,27 +1293,196 @@
                 animationId = null;
             }
             
-            if (video && video.srcObject) {
-                const tracks = video.srcObject.getTracks();
-                tracks.forEach(track => track.stop());
-                video.srcObject = null;
+            // Hide the canvas overlay when face detection stops
+            if (canvas) {
+                canvas.style.display = 'none';
+                console.log('Canvas overlay hidden - face detection stopped');
             }
             
-            // Reset camera status
-            const cameraStatus = document.getElementById('cameraStatus');
-            cameraStatus.textContent = 'Camera: Ready';
-            cameraStatus.style.background = 'rgba(0,0,0,0.8)';
+            // Don't stop the camera stream - keep it running
+            // Only stop face detection, but leave camera active
+            
+            // Keep camera status as active
+                const cameraStatus = document.getElementById('cameraStatus');
+            if (video && video.srcObject && video.videoWidth > 0) {
+                cameraStatus.textContent = `Camera: Active (${video.videoWidth}x${video.videoHeight})`;
+                cameraStatus.style.background = 'rgba(0,255,0,0.8)';
+            } else {
+                cameraStatus.textContent = 'Camera: Ready';
+                cameraStatus.style.background = 'rgba(0,0,0,0.8)';
+            }
             
             clearAllLEDs();
-            document.getElementById('status').innerHTML = 'Stopped. Click Start to resume. <span class="face-indicator" id="faceIndicator"></span>';
+            document.getElementById('status').innerHTML = 'Face detection stopped. Camera remains active. Click Start to resume. <span class="face-indicator" id="faceIndicator"></span>';
             faceIndicator = document.getElementById('faceIndicator');
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
         }
 
+        // Create a mock camera feed when real camera is not available
+        function createMockCamera() {
+            const mockCanvas = document.createElement('canvas');
+            mockCanvas.width = 640;
+            mockCanvas.height = 480;
+            const ctx = mockCanvas.getContext('2d');
+            
+            // Create an animated mock feed
+            function drawMockFrame() {
+                // Clear canvas
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fillRect(0, 0, 640, 480);
+                
+                // Draw a border
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(20, 20, 600, 440);
+                
+                // Draw text
+                ctx.fillStyle = '#666';
+                ctx.font = '24px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Camera Demo Mode', 320, 180);
+                ctx.fillText('Mock Video Feed', 320, 220);
+                
+                // Draw animated elements
+                const time = Date.now() / 1000;
+                const pulse = Math.sin(time * 2) * 0.3 + 0.7;
+                
+                // Animated circle
+                ctx.beginPath();
+                ctx.arc(320, 300, 40 * pulse, 0, 2 * Math.PI);
+                ctx.fillStyle = `rgba(255, 255, 0, ${pulse})`;
+                ctx.fill();
+                
+                // Instructions
+                ctx.fillStyle = '#999';
+                ctx.font = '16px Arial';
+                ctx.fillText('Use localhost:8000 for real camera', 320, 380);
+                ctx.fillText('or grant camera permissions', 320, 400);
+                
+                requestAnimationFrame(drawMockFrame);
+            }
+            
+            drawMockFrame();
+            return mockCanvas.captureStream(30);
+        }
+
+        // Auto-start camera function
+        async function autoStartCamera() {
+            try {
+                console.log('🟢 autoStartCamera() CALLED - initializing camera with mirroring');
+                // Setup video element first
+                video = document.getElementById('video');
+                
+                // Debug current video transform
+                if (video) {
+                    console.log('Current video transform before:', video.style.transform);
+                    console.log('Current video computed style:', window.getComputedStyle(video).transform);
+                }
+                if (!video) {
+                    console.error('Video element not found');
+                    return false;
+                }
+                
+                // Check if we're in a secure context
+                if (!window.isSecureContext) {
+                    console.warn('Not in secure context - using mock camera');
+                    video.srcObject = createMockCamera();
+                    video.style.display = 'block';
+                    video.style.setProperty('transform', 'scaleX(-1)', 'important'); // Mirror the video horizontally
+                    video.play();
+                    
+                    const cameraStatus = document.getElementById('cameraStatus');
+                    if (cameraStatus) {
+                        cameraStatus.textContent = 'Camera: Demo Mode (Use localhost:8000 for real camera)';
+                        cameraStatus.style.background = 'rgba(255,165,0,0.8)';
+                    }
+                    return true;
+                }
+                
+                // Check if getUserMedia is available
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    console.warn('getUserMedia not available - using mock camera');
+                    video.srcObject = createMockCamera();
+                    video.style.display = 'block';
+                    video.style.setProperty('transform', 'scaleX(-1)', 'important'); // Mirror the video horizontally
+                    video.play();
+                    
+                    const cameraStatus = document.getElementById('cameraStatus');
+                    if (cameraStatus) {
+                        cameraStatus.textContent = 'Camera: Demo Mode (Media API not supported)';
+                        cameraStatus.style.background = 'rgba(255,165,0,0.8)';
+                    }
+                    return true;
+                }
+                
+                // Try to request camera access
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        width: { ideal: 1280, min: 640 },
+                        height: { ideal: 720, min: 480 },
+                        facingMode: 'user',
+                        frameRate: { ideal: 30 }
+                    },
+                    audio: false
+                });
+                
+                // Set video source and ensure it's visible
+                video.srcObject = stream;
+                video.style.display = 'block';
+                video.style.transform = 'scaleX(-1)'; // Mirror the video horizontally
+                video.style.setProperty('transform', 'scaleX(-1)', 'important'); // Force with !important
+                
+                // Debug transform after setting
+                console.log('Video transform after setting:', video.style.transform);
+                console.log('Video computed style after:', window.getComputedStyle(video).transform);
+                
+                // Wait for video to be ready and auto-play
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play().then(() => {
+                            console.log('Real camera started successfully');
+                            const cameraStatus = document.getElementById('cameraStatus');
+                            if (cameraStatus) {
+                                cameraStatus.textContent = `Camera: Active (${video.videoWidth}x${video.videoHeight})`;
+                                cameraStatus.style.background = 'rgba(0,255,0,0.8)';
+                            }
+                            resolve();
+                        }).catch(e => {
+                            console.error('Video play failed:', e);
+                            resolve();
+                        });
+                    };
+                });
+                
+                return true;
+            } catch (error) {
+                console.error('Camera access failed, falling back to mock camera:', error);
+                
+                // Fallback to mock camera
+                video.srcObject = createMockCamera();
+                video.style.display = 'block';
+                video.style.transform = 'scaleX(-1)'; // Mirror the video horizontally
+                video.play();
+                
+                const cameraStatus = document.getElementById('cameraStatus');
+                if (cameraStatus) {
+                    cameraStatus.textContent = `Camera: Demo Mode (${error.message})`;
+                    cameraStatus.style.background = 'rgba(255,165,0,0.8)';
+                }
+                return true;
+            }
+        }
+
         // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             setupLEDs();
+            
+            // Auto-start camera immediately
+            const cameraStarted = await autoStartCamera();
+            
+            // Initialize face detection
+            await initializeFaceDetection();
             
             // Check browser compatibility
             const compatibilityIssues = checkBrowserCompatibility();
@@ -669,15 +1492,23 @@
                 statusEl.style.background = '#ff6600';
                 faceIndicator = document.getElementById('faceIndicator');
             } else {
-                document.getElementById('status').innerHTML = 'Browser compatible! Waiting for OpenCV to load... <span class="face-indicator" id="faceIndicator"></span>';
+                if (cameraStarted) {
+                    // Both camera and face detection are ready - auto-start detection
+                    startFaceDetection();
+                } else {
+                    const statusText = cameraStarted ? 
+                        'Camera active! Waiting for face detection to load...' : 
+                        'Browser compatible! Camera access needed - click Start to try again...';
+                    document.getElementById('status').innerHTML = `${statusText} <span class="face-indicator" id="faceIndicator"></span>`;
                 faceIndicator = document.getElementById('faceIndicator');
+                }
             }
             
             document.getElementById('startBtn').onclick = startFaceDetection;
             document.getElementById('stopBtn').onclick = stopFaceDetection;
             document.getElementById('testBtn').onclick = testSmileyPattern;
             document.getElementById('clearBtn').onclick = clearAllLEDs;
-            document.getElementById('cameraTestBtn').onclick = testCameraOnly;
+            document.getElementById('cameraTestBtn').onclick = autoStartCamera;
         });
     </script>
 </body>

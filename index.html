@@ -237,9 +237,9 @@
                 <div class="expression-tags" id="expressionTags">
                     <div class="expression-tag" id="tag-neutral">Neutral</div>
                     <div class="expression-tag" id="tag-sad">Sad</div>
-                    <div class="expression-tag" id="tag-excited">Excited</div>
                     <div class="expression-tag" id="tag-happy">Happy</div>
-                    <div class="expression-tag" id="tag-shocked">Shocked</div>
+                    <div class="expression-tag" id="tag-surprised">Surprised</div>
+                    <div class="expression-tag" id="tag-angry">Angry</div>
                 </div>
             </div>
         </div>
@@ -453,14 +453,14 @@
                     const expr = getDominantExpression(resized[0].expressions);
                     mapSimpleExpressionToLEDs(expr);
                     // Highlight tags
-                    ['neutral','sad','excited','happy','shocked'].forEach(tag=>{
+                    ['neutral','sad','happy','surprised','angry'].forEach(tag=>{
                         const el=document.getElementById(`tag-${tag}`);
                         if(el) el.classList.toggle('active', tag===expr);
                     });
                     if(faceIndicator){ faceIndicator.classList.add('detected'); faceIndicator.textContent=`😊 ${expr.toUpperCase()}`; }
                 } else {
                     clearAllLEDs();
-                    ['neutral','sad','excited','happy','shocked'].forEach(tag=>{document.getElementById(`tag-${tag}`)?.classList.remove('active');});
+                    ['neutral','sad','happy','surprised','angry'].forEach(tag=>{document.getElementById(`tag-${tag}`)?.classList.remove('active');});
                     faceIndicator?.classList.remove('detected'); faceIndicator.textContent='';
                 }
                 
@@ -866,6 +866,10 @@
                     console.log('✅ MATCHED NEUTRAL - Drawing neutral face');
                     drawNeutralFace();
                     break;
+                case 'angry':
+                    console.log('✅ MATCHED ANGRY - Drawing angry face');
+                    drawAngryFace();
+                    break;
                 default:
                     console.log('❌ DEFAULT CASE - Drawing neutral face, cleaned expression was:', cleanExpression);
                     drawNeutralFace();
@@ -886,9 +890,6 @@
                     break;
                 case 'surprised':
                     drawSurprisedFace();
-                    break;
-                case 'excited':
-                    drawExcitedFace();
                     break;
                 case 'angry':
                     drawAngryFace();
@@ -953,7 +954,7 @@
         }
 
         function drawSurprisedFace() {
-            // Shocked face pattern based on Figma design
+            // surprised face pattern based on Figma design
             const surprisedPattern = [
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
@@ -975,47 +976,24 @@
             applyLEDPattern(surprisedPattern);
         }
 
-        function drawExcitedFace() {
-            // Excited face pattern based on Figma design
-            const excitedPattern = [
+        function drawAngryFace() {
+            const angryPattern = [
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
                 [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
                 [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
                 [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
-                [0,0,1,0,0,1,0,0,0,0,1,0,0,1,0,0],
-                [0,1,0,0,1,0,1,0,0,1,0,1,0,0,1,0],
+                [0,0,1,0,1,1,0,0,0,0,1,1,0,1,0,0],
+                [0,1,0,0,0,1,1,0,0,1,1,0,0,0,1,0],
+                [0,1,0,0,0,0,1,0,0,1,0,0,0,0,1,0],
                 [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
-                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
-                [0,1,0,0,0,1,1,1,1,1,1,0,0,0,1,0],
+                [0,1,0,0,0,0,0,1,1,0,0,0,0,0,1,0],
                 [0,0,1,0,0,0,1,1,1,1,0,0,0,1,0,0],
-                [0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0],
+                [0,0,1,0,0,1,0,0,0,0,1,0,0,1,0,0],
                 [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
                 [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
                 [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-            ];
-            applyLEDPattern(excitedPattern);
-        }
-
-        function drawAngryFace() {
-            const angryPattern = [
-                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],
-                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
-                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
-                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
-                [0,1,0,0,1,1,1,1,1,1,1,1,0,0,1,0],
-                [1,1,0,0,0,1,1,1,1,1,1,0,0,0,1,1],
-                [1,1,1,0,0,1,1,1,1,1,1,0,0,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1],
-                [0,1,1,1,1,0,1,1,1,1,0,1,1,1,1,0],
-                [0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0],
-                [0,0,1,1,1,1,1,0,0,1,1,1,1,1,0,0],
-                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
-                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0]
             ];
             applyLEDPattern(angryPattern);
         }

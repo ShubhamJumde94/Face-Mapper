@@ -19,10 +19,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root { 
-            --bg: #000000; 
-            --led-off: #121212; 
+            --bg: transparent; 
+            --led-off: transparent; 
             --led-on: #ffff00;
-            --grid-bg: #000000;
+            --grid-bg: transparent;
         }
         
         html, body { 
@@ -50,26 +50,8 @@
             gap: 20px;
         }
         
-        h1 {
-            color: #fff;
-            margin: 0;
-            font-size: 2rem;
-            text-align: center;
-        }
-        
-        .status {
-            background: #333;
-            color: #fff;
-            padding: 15px 25px;
-            border-radius: 10px;
-            font-size: 16px;
-            text-align: center;
-            min-width: 300px;
-        }
-        
         .led-board {
             background: var(--grid-bg);
-            border: 2px solid #333;
             border-radius: 10px;
             padding: 20px;
             display: grid;
@@ -101,6 +83,7 @@
             overflow: hidden;
             border: 2px solid #333;
             position: relative;
+            display: none !important;
         }
         
         .camera-preview video {
@@ -124,95 +107,6 @@
             transform: scaleX(-1) !important; /* Mirror the canvas overlay too */
         }
         
-        .camera-label {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.8);
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: bold;
-            z-index: 10;
-        }
-        
-        .camera-status {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.8);
-            color: #fff;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 10px;
-            z-index: 10;
-        }
-        
-        .controls {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-        
-        button {
-            background: #333;
-            color: #fff;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            transition: background 0.2s ease;
-        }
-        
-        button:hover {
-            background: #555;
-        }
-        
-        button:disabled {
-            background: #666;
-            cursor: not-allowed;
-        }
-        
-        .face-indicator {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #ff0000;
-            display: inline-block;
-            margin-left: 10px;
-            animation: pulse 2s infinite;
-        }
-        
-        .face-indicator.detected {
-            background: #00ff00;
-        }
-        
-        /* Expression tags styling */
-        .expression-tags {
-            position: absolute;
-            bottom: 10px;
-            right: 10px;
-            display: flex;
-            gap: 8px;
-            z-index: 10;
-        }
-        .expression-tag {
-            background: rgba(255, 255, 255, 0.8);
-            color: #000;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            cursor: default;
-        }
-        .expression-tag.active {
-            background: #00ff00;
-            color: #fff;
-        }
-        
         @keyframes pulse {
             0% { opacity: 1; }
             50% { opacity: 0.5; }
@@ -223,7 +117,7 @@
 <body>
     <div class="container">        
         <div class="status" id="status">
-            Loading OpenCV... <span class="face-indicator" id="faceIndicator"></span>
+            <span class="face-indicator" id="faceIndicator"></span>
         </div>
         
         <div class="group">
@@ -232,24 +126,7 @@
             <div class="camera-preview">
                 <video id="video" autoplay muted playsinline></video>
                 <canvas id="debugCanvas"></canvas>
-                <div class="camera-label">CAMERA PREVIEW</div>
-                <div class="camera-status" id="cameraStatus">Camera: Ready</div>
-                <div class="expression-tags" id="expressionTags">
-                    <div class="expression-tag" id="tag-neutral">Neutral</div>
-                    <div class="expression-tag" id="tag-sad">Sad</div>
-                    <div class="expression-tag" id="tag-excited">Excited</div>
-                    <div class="expression-tag" id="tag-happy">Happy</div>
-                    <div class="expression-tag" id="tag-shocked">Shocked</div>
-                </div>
             </div>
-        </div>
-
-        <div class="controls">
-            <button id="startBtn">Start Face Detection</button>
-            <button id="stopBtn" disabled>Stop Detection</button>
-            <button id="testBtn">Test Smiley Pattern</button>
-            <button id="clearBtn">Clear All LEDs</button>
-            <button id="cameraTestBtn">Restart Camera</button>
         </div>
     </div>
 
@@ -266,7 +143,6 @@
           console.log('Loading face-api.js models for detection and expressions...');
           // Use local models directory
           const MODEL_URL = '/models';
-          document.getElementById('status').innerHTML = 'Loading face-api.js models... <span class="face-indicator" id="faceIndicator"></span>';
           // Load face-api.js models
           await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
           await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
@@ -274,26 +150,11 @@
           faceDetectionLoaded = true;
           console.log('✅ face-api.js models loaded successfully');
           // Update status
-          document.getElementById('status').innerHTML = 'Face detection models loaded! Starting detection... <span class="face-indicator" id="faceIndicator"></span>';
           faceIndicator = document.getElementById('faceIndicator');
           // Start detection if camera active
           if (video && video.srcObject && video.videoWidth > 0) startFaceDetection();
         } catch (error) {
           console.error('Error loading face-api.js models:', error);
-          document.getElementById('status').innerHTML = 'Error loading face-api.js models';
-        }
-      }
-
-      // Simple face detection fallback
-      function initializeSimpleDetection() {
-        faceDetectionLoaded = true;
-        console.log('Using simple face detection');
-        document.getElementById('status').innerHTML = 'Simple face detection ready! <span class="face-indicator" id="faceIndicator"></span>';
-        faceIndicator = document.getElementById('faceIndicator');
-        
-        // Auto-start detection if camera is ready
-        if (video && video.srcObject && video.videoWidth > 0) {
-          startFaceDetection();
         }
       }
 
@@ -308,25 +169,6 @@
         let leds = [];
         let animationId = null;
         let faceIndicator = null;
-
-        // Smiley face pattern based on Figma design
-        const SMILEY_PATTERN = [
-            // Eyes (rows 5-6, columns 6-9)
-            [5, 6], [5, 7], [5, 8], [5, 9],
-            [6, 6], [6, 7], [6, 8], [6, 9],
-            
-            // Mouth (rows 9-12, columns 5-10)
-            [9, 5], [9, 6], [9, 7], [9, 8], [9, 9], [9, 10],
-            [10, 5], [10, 6], [10, 7], [10, 8], [10, 9], [10, 10],
-            [11, 5], [11, 6], [11, 7], [11, 8], [11, 9], [11, 10],
-            [12, 5], [12, 6], [12, 7], [12, 8], [12, 9], [12, 10],
-            
-            // Face outline points
-            [4, 3], [4, 12], [7, 2], [7, 13], [8, 2], [8, 13],
-            [11, 3], [11, 12], [14, 4], [14, 11], [15, 5], [15, 10]
-        ];
-
-
 
         function setupLEDs() {
             const board = document.getElementById('ledBoard');
@@ -354,21 +196,6 @@
             leds.forEach(led => {
                 led.classList.remove('on');
             });
-        }
-
-        function testSmileyPattern() {
-            clearAllLEDs();
-            
-            // Light up the smiley face pattern
-            SMILEY_PATTERN.forEach(([row, col]) => {
-                const index = row * 16 + col;
-                if (leds[index]) {
-                    leds[index].classList.add('on');
-                }
-            });
-            
-            document.getElementById('status').innerHTML = 'Smiley face pattern displayed! <span class="face-indicator" id="faceIndicator"></span>';
-            faceIndicator = document.getElementById('faceIndicator');
         }
 
         function mapFaceToSmiley(faceRect) {
@@ -453,14 +280,13 @@
                     const expr = getDominantExpression(resized[0].expressions);
                     mapSimpleExpressionToLEDs(expr);
                     // Highlight tags
-                    ['neutral','sad','excited','happy','shocked'].forEach(tag=>{
+                    ['neutral','sad','happy','surprised','angry'].forEach(tag=>{
                         const el=document.getElementById(`tag-${tag}`);
                         if(el) el.classList.toggle('active', tag===expr);
                     });
-                    if(faceIndicator){ faceIndicator.classList.add('detected'); faceIndicator.textContent=`😊 ${expr.toUpperCase()}`; }
                 } else {
                     clearAllLEDs();
-                    ['neutral','sad','excited','happy','shocked'].forEach(tag=>{document.getElementById(`tag-${tag}`)?.classList.remove('active');});
+                    ['neutral','sad','happy','surprised','angry'].forEach(tag=>{document.getElementById(`tag-${tag}`)?.classList.remove('active');});
                     faceIndicator?.classList.remove('detected'); faceIndicator.textContent='';
                 }
                 
@@ -471,341 +297,11 @@
             }
         }
 
-        // Analyze facial features to determine expression
-        function analyzeFacialExpression(detection) {
-            try {
-                // Get facial landmarks if available
-                const landmarks = detection.landmarks || [];
-                
-                if (landmarks.length > 0) {
-                    // Analyze eye and mouth positions for expression detection
-                    const leftEye = landmarks.find(p => p.type === 'leftEye') || landmarks[0];
-                    const rightEye = landmarks.find(p => p.type === 'rightEye') || landmarks[1];
-                    const nose = landmarks.find(p => p.type === 'nose') || landmarks[2];
-                    const mouth = landmarks.find(p => p.type === 'mouth') || landmarks[3];
-                    
-                    if (leftEye && rightEye && nose && mouth) {
-                        // Calculate eye openness (distance between upper and lower eyelid)
-                        const leftEyeOpenness = calculateEyeOpenness(leftEye);
-                        const rightEyeOpenness = calculateEyeOpenness(rightEye);
-                        const avgEyeOpenness = (leftEyeOpenness + rightEyeOpenness) / 2;
-                        
-                        // Calculate mouth openness and position
-                        const mouthOpenness = calculateMouthOpenness(mouth);
-                        const mouthPosition = calculateMouthPosition(mouth, nose);
-                        
-                        // Determine expression based on facial metrics
-                        if (avgEyeOpenness > 0.7 && mouthOpenness > 0.6) {
-                            return 'surprised';
-                        } else if (avgEyeOpenness < 0.3 && mouthOpenness < 0.2) {
-                            return 'sad';
-                        } else if (mouthPosition > 0.6) {
-                            return 'happy';
-                        } else if (avgEyeOpenness < 0.4 && mouthOpenness < 0.3) {
-                            return 'angry';
-                        } else {
-                            return 'neutral';
-                        }
-                    }
-                }
-                
-                // Fallback: analyze face position and size for basic expression
-                const { width, height } = detection.boundingBox;
-                const faceArea = width * height;
-                const videoArea = canvas.width * canvas.height;
-                const faceRatio = faceArea / videoArea;
-                
-                // Simple heuristics based on face size and position
-                if (faceRatio > 0.15) { // Face is close/expressive
-                    return 'happy';
-                } else if (faceRatio < 0.05) { // Face is far/small
-                    return 'neutral';
-                } else {
-                    return 'neutral';
-                }
-                
-            } catch (error) {
-                console.error('Expression analysis error:', error);
-                return 'neutral';
-            }
-        }
-        
-        // Helper function to calculate eye openness
-        function calculateEyeOpenness(eyeLandmarks) {
-            // This is a simplified calculation - in a real implementation,
-            // you'd analyze the distance between upper and lower eyelid points
-            return Math.random() * 0.5 + 0.5; // Placeholder: random value between 0.5-1.0
-        }
-        
-        // Helper function to calculate mouth openness
-        function calculateMouthOpenness(mouthLandmarks) {
-            // This is a simplified calculation - in a real implementation,
-            // you'd analyze the distance between upper and lower lip points
-            return Math.random() * 0.5 + 0.3; // Placeholder: random value between 0.3-0.8
-        }
-        
-        // Helper function to calculate mouth position relative to nose
-        function calculateMouthPosition(mouthLandmarks, noseLandmarks) {
-            // This is a simplified calculation - in a real implementation,
-            // you'd analyze the relative position of mouth vs nose
-            return Math.random() * 0.5 + 0.3; // Placeholder: random value between 0.3-0.8
-        }
-        
+
         // Real-time expression detection using video frame analysis
         let lastExpression = 'neutral';
         let expressionHistory = [];
         
-        function detectExpressionFromVideo() {
-            if (!video || !canvas || !ctx) return 'neutral';
-            
-            try {
-                // Draw current video frame to canvas for analysis
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                
-                // Get image data from key facial areas
-                const centerX = Math.floor(canvas.width / 2);
-                const centerY = Math.floor(canvas.height / 2);
-                
-                // Analyze mouth area (lower center of face)
-                const mouthArea = ctx.getImageData(centerX - 30, centerY + 20, 60, 40);
-                const mouthBrightness = calculateAreaBrightness(mouthArea);
-                
-                // Analyze eye areas (upper center of face)
-                const leftEyeArea = ctx.getImageData(centerX - 40, centerY - 30, 30, 25);
-                const rightEyeArea = ctx.getImageData(centerX + 10, centerY - 30, 30, 25);
-                const leftEyeBrightness = calculateAreaBrightness(leftEyeArea);
-                const rightEyeBrightness = calculateAreaBrightness(rightEyeArea);
-                const avgEyeBrightness = (leftEyeBrightness + rightEyeBrightness) / 2;
-                
-                // Analyze cheek areas for smile detection
-                const leftCheekArea = ctx.getImageData(centerX - 50, centerY, 25, 30);
-                const rightCheekArea = ctx.getImageData(centerX + 25, centerY, 25, 30);
-                const leftCheekBrightness = calculateAreaBrightness(leftCheekArea);
-                const rightCheekBrightness = calculateAreaBrightness(rightCheekArea);
-                const avgCheekBrightness = (leftCheekBrightness + rightCheekBrightness) / 2;
-                
-                // Determine expression based on brightness patterns
-                let expression = 'neutral';
-                
-                // Smile detection: cheeks get brighter when smiling
-                if (avgCheekBrightness > 0.6 && mouthBrightness > 0.5) {
-                    expression = 'happy';
-                }
-                // Surprised: eyes and mouth get brighter
-                else if (avgEyeBrightness > 0.7 && mouthBrightness > 0.6) {
-                    expression = 'surprised';
-                }
-                // Sad: darker areas around eyes and mouth
-                else if (avgEyeBrightness < 0.4 && mouthBrightness < 0.4) {
-                    expression = 'sad';
-                }
-                // Angry: darker eyes, normal mouth
-                else if (avgEyeBrightness < 0.3 && mouthBrightness > 0.4) {
-                    expression = 'angry';
-                }
-                
-                // Add to history for stability
-                expressionHistory.push(expression);
-                if (expressionHistory.length > 10) {
-                    expressionHistory.shift();
-                }
-                
-                // Get most common expression from recent history
-                const expressionCounts = {};
-                expressionHistory.forEach(exp => {
-                    expressionCounts[exp] = (expressionCounts[exp] || 0) + 1;
-                });
-                
-                let mostCommonExpression = 'neutral';
-                let maxCount = 0;
-                for (const [exp, count] of Object.entries(expressionCounts)) {
-                    if (count > maxCount) {
-                        maxCount = count;
-                        mostCommonExpression = exp;
-                    }
-                }
-                
-                // Only change expression if it's stable
-                if (mostCommonExpression !== lastExpression && maxCount >= 3) {
-                    lastExpression = mostCommonExpression;
-                    console.log(`🎭 Expression changed to: ${mostCommonExpression} (stability: ${maxCount}/10)`);
-                }
-                
-                return lastExpression;
-                
-            } catch (error) {
-                console.error('Video frame analysis error:', error);
-                return lastExpression;
-            }
-        }
-        
-        // Calculate average brightness of an image area
-        function calculateAreaBrightness(imageData) {
-            let totalBrightness = 0;
-            const data = imageData.data;
-            
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-                // Convert RGB to brightness (0-1)
-                const brightness = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
-                totalBrightness += brightness;
-            }
-            
-            return totalBrightness / (data.length / 4);
-        }
-
-        // MediaPipe results callback
-        function onFaceDetectionResults(results) {
-            if (!ctx || !canvas) return;
-            
-            // Clear previous drawings
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            if (results.detections && results.detections.length > 0) {
-                const detection = results.detections[0];
-                
-                // Draw face bounding box
-                const bbox = detection.boundingBox;
-                const x = bbox.xCenter * canvas.width - (bbox.width * canvas.width) / 2;
-                const y = bbox.yCenter * canvas.height - (bbox.height * canvas.height) / 2;
-                const width = bbox.width * canvas.width;
-                const height = bbox.height * canvas.height;
-                
-                    ctx.strokeStyle = '#00ff00';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(x, y, width, height);
-                
-                // Draw key points (eyes, nose, mouth)
-                if (detection.landmarks) {
-                    ctx.fillStyle = '#ff0000';
-                    detection.landmarks.forEach(landmark => {
-                        const px = landmark.x * canvas.width;
-                        const py = landmark.y * canvas.height;
-                        ctx.beginPath();
-                        ctx.arc(px, py, 2, 0, 2 * Math.PI);
-                        ctx.fill();
-                    });
-                }
-                
-                // Simple expression mapping based on face position and size
-                const faceData = {
-                    x: x / canvas.width,
-                    y: y / canvas.height,
-                    width: width / canvas.width,
-                    height: height / canvas.height
-                };
-                
-                // Determine expression from face data
-                let expression = 'neutral';
-                if (faceData.width > 0.4) {
-                    expression = 'happy'; // Close to camera
-                } else if (faceData.y < 0.3) {
-                    expression = 'surprised'; // High in frame
-                } else if (faceData.width < 0.2) {
-                    expression = 'sad'; // Far from camera
-                }
-                
-                console.log('🎯 MediaPipe detected expression:', expression, 'from faceData:', faceData);
-                mapSimpleExpressionToLEDs(expression);
-                
-                // Update face indicator
-                if (faceIndicator) {
-                    faceIndicator.classList.add('detected');
-                    faceIndicator.textContent = '😊 FACE DETECTED';
-                }
-                } else {
-                    clearAllLEDs();
-                if (faceIndicator) {
-                    faceIndicator.classList.remove('detected');
-                    faceIndicator.textContent = '';
-                }
-            }
-        }
-
-        // Simple face detection using video analysis
-        function detectSimpleFace() {
-            if (!ctx || !canvas || !video) return;
-            
-            // Clear previous drawings
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            // Analyze video data for simple face detection and expression mapping
-            console.log('Simple face detection running - analyzing for expressions');
-            
-            // Get image data from center region for analysis
-            const imageData = ctx.getImageData(canvas.width * 0.2, canvas.height * 0.2, 
-                                             canvas.width * 0.6, canvas.height * 0.6);
-            const data = imageData.data;
-            
-            // Simple brightness-based detection for different expressions
-            let totalBrightness = 0;
-            let pixelCount = 0;
-            
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-                const brightness = (r + g + b) / 3;
-                totalBrightness += brightness;
-                pixelCount++;
-            }
-            
-            const avgBrightness = totalBrightness / pixelCount;
-            
-            // Draw face detection rectangle
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(canvas.width * 0.25, canvas.height * 0.25, 
-                          canvas.width * 0.5, canvas.height * 0.5);
-            
-            // Store previous brightness for comparison
-            if (typeof detectSimpleFace.prevBrightness === 'undefined') {
-                detectSimpleFace.prevBrightness = avgBrightness;
-                detectSimpleFace.expressionTimer = Date.now();
-                detectSimpleFace.currentExpression = 'neutral';
-            }
-            
-            const brightnessChange = Math.abs(avgBrightness - detectSimpleFace.prevBrightness);
-            const timeSinceLastChange = Date.now() - detectSimpleFace.expressionTimer;
-            
-            // Map brightness and movement to different expressions
-            let expression = detectSimpleFace.currentExpression;
-            
-            // More responsive expression detection - change every 500ms or on smaller brightness changes
-            if (brightnessChange > 5 || timeSinceLastChange > 500) {
-                if (avgBrightness > 130) {
-                    expression = 'happy';
-                } else if (brightnessChange > 8) {
-                    expression = 'surprised'; // Quick movement
-                } else if (avgBrightness < 90) {
-                    expression = 'sad';
-                } else {
-                    expression = 'neutral';
-                }
-                
-                // Update stored values
-                detectSimpleFace.prevBrightness = avgBrightness;
-                detectSimpleFace.expressionTimer = Date.now();
-                detectSimpleFace.currentExpression = expression;
-            }
-            
-            // Debug info
-            console.log(`Brightness: ${avgBrightness.toFixed(1)}, Change: ${brightnessChange.toFixed(1)}, TimeSince: ${timeSinceLastChange}ms`);
-            
-            console.log(`Simple fallback detected expression: ${expression} (brightness: ${avgBrightness.toFixed(1)})`);
-            mapSimpleExpressionToLEDs(expression);
-            
-            // Update face indicator
-            if (faceIndicator) {
-                faceIndicator.classList.add('detected');
-                faceIndicator.textContent = '😊 TESTING LEDs';
-            }
-        }
-
         // Get the dominant facial expression
         function getDominantExpression(expressions) {
             let maxValue = 0;
@@ -819,25 +315,6 @@
             }
             
             return dominantExpression;
-        }
-
-        // Draw face detection overlay on camera preview
-        function drawFaceOverlay(ctx, detection) {
-            const { x, y, width, height } = detection.detection.box;
-            
-            // Draw face bounding box
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(x, y, width, height);
-            
-            // Draw facial landmarks
-            const landmarks = detection.landmarks;
-            ctx.fillStyle = '#ff0000';
-            landmarks.positions.forEach(point => {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 1, 0, 2 * Math.PI);
-                ctx.fill();
-            });
         }
 
         // Simple expression mapping based on face data
@@ -866,6 +343,10 @@
                     console.log('✅ MATCHED NEUTRAL - Drawing neutral face');
                     drawNeutralFace();
                     break;
+                case 'angry':
+                    console.log('✅ MATCHED ANGRY - Drawing angry face');
+                    drawAngryFace();
+                    break;
                 default:
                     console.log('❌ DEFAULT CASE - Drawing neutral face, cleaned expression was:', cleanExpression);
                     drawNeutralFace();
@@ -886,9 +367,6 @@
                     break;
                 case 'surprised':
                     drawSurprisedFace();
-                    break;
-                case 'excited':
-                    drawExcitedFace();
                     break;
                 case 'angry':
                     drawAngryFace();
@@ -953,7 +431,7 @@
         }
 
         function drawSurprisedFace() {
-            // Shocked face pattern based on Figma design
+            // surprised face pattern based on Figma design
             const surprisedPattern = [
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
@@ -975,47 +453,24 @@
             applyLEDPattern(surprisedPattern);
         }
 
-        function drawExcitedFace() {
-            // Excited face pattern based on Figma design
-            const excitedPattern = [
+        function drawAngryFace() {
+            const angryPattern = [
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
                 [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
                 [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
                 [0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0],
-                [0,0,1,0,0,1,0,0,0,0,1,0,0,1,0,0],
-                [0,1,0,0,1,0,1,0,0,1,0,1,0,0,1,0],
+                [0,0,1,0,1,1,0,0,0,0,1,1,0,1,0,0],
+                [0,1,0,0,0,1,1,0,0,1,1,0,0,0,1,0],
+                [0,1,0,0,0,0,1,0,0,1,0,0,0,0,1,0],
                 [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
-                [0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
-                [0,1,0,0,0,1,1,1,1,1,1,0,0,0,1,0],
+                [0,1,0,0,0,0,0,1,1,0,0,0,0,0,1,0],
                 [0,0,1,0,0,0,1,1,1,1,0,0,0,1,0,0],
-                [0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0],
+                [0,0,1,0,0,1,0,0,0,0,1,0,0,1,0,0],
                 [0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0],
                 [0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0],
                 [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-            ];
-            applyLEDPattern(excitedPattern);
-        }
-
-        function drawAngryFace() {
-            const angryPattern = [
-                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],
-                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
-                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
-                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
-                [0,1,0,0,1,1,1,1,1,1,1,1,0,0,1,0],
-                [1,1,0,0,0,1,1,1,1,1,1,0,0,0,1,1],
-                [1,1,1,0,0,1,1,1,1,1,1,0,0,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1],
-                [0,1,1,1,1,0,1,1,1,1,0,1,1,1,1,0],
-                [0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0],
-                [0,0,1,1,1,1,1,0,0,1,1,1,1,1,0,0],
-                [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
-                [0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0]
             ];
             applyLEDPattern(angryPattern);
         }
@@ -1113,57 +568,6 @@
             console.log(`Applied pattern: ${ledsFound} LEDs found, ${ledsLit} LEDs lit`);
         }
 
-        function detectFaceByBrightness(gray) {
-            try {
-                // This function is no longer used with face-api.js
-                return null;
-                cv.threshold(gray, mask, 100, 255, cv.THRESH_BINARY);
-                
-                // Find contours
-                let contours = new cv.MatVector();
-                let hierarchy = new cv.Mat();
-                cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                
-                let largestContour = null;
-                let maxArea = 0;
-                
-                for (let i = 0; i < contours.size(); i++) {
-                    const contour = contours.get(i);
-                    const area = cv.contourArea(contour);
-                    
-                    if (area > maxArea && area > 5000) { // Minimum area threshold
-                        maxArea = area;
-                        largestContour = contour;
-                    }
-                }
-                
-                if (largestContour) {
-                    const boundingRect = cv.boundingRect(largestContour);
-                    
-                    // Clean up
-                    mask.delete();
-                    contours.delete();
-                    hierarchy.delete();
-                    
-                    return {
-                        x: boundingRect.x,
-                        y: boundingRect.y,
-                        width: boundingRect.width,
-                        height: boundingRect.height
-                    };
-                }
-                
-                // Clean up
-                mask.delete();
-                contours.delete();
-                hierarchy.delete();
-                
-            } catch (error) {
-                console.error('Brightness detection error:', error);
-            }
-            
-            return null;
-        }
 
         // Browser compatibility check
         function checkBrowserCompatibility() {
@@ -1193,11 +597,6 @@
 
         async function startFaceDetection() {
             try {
-                document.getElementById('status').innerHTML = 'Starting camera... <span class="face-indicator" id="faceIndicator"></span>';
-                faceIndicator = document.getElementById('faceIndicator');
-                
-                console.log('🔵 startFaceDetection() CALLED - using existing camera');
-                
                 // Get existing video element (should already be initialized by autoStartCamera)
                 video = document.getElementById('video');
                 if (!video) {
@@ -1258,7 +657,6 @@
                 }
                 
                 if (faceDetectionLoaded) {
-                    document.getElementById('status').innerHTML = 'Face detection active! Move your face to see LED patterns! <span class="face-indicator" id="faceIndicator"></span>';
                     faceIndicator = document.getElementById('faceIndicator');
                     
                     isRunning = true;
@@ -1267,13 +665,11 @@
                     document.getElementById('startBtn').disabled = true;
                     document.getElementById('stopBtn').disabled = false;
                 } else {
-                    document.getElementById('status').innerHTML = 'Camera ready! Waiting for face detection to load... <span class="face-indicator" id="faceIndicator"></span>';
                     faceIndicator = document.getElementById('faceIndicator');
                 }
                 
             } catch (error) {
                 const errorMsg = error.message || 'Unknown error';
-                document.getElementById('status').innerHTML = `Camera Error: ${errorMsg} <span class="face-indicator" id="faceIndicator"></span>`;
                 faceIndicator = document.getElementById('faceIndicator');
                 
                 const cameraStatus = document.getElementById('cameraStatus');
@@ -1313,58 +709,9 @@
             }
             
             clearAllLEDs();
-            document.getElementById('status').innerHTML = 'Face detection stopped. Camera remains active. Click Start to resume. <span class="face-indicator" id="faceIndicator"></span>';
             faceIndicator = document.getElementById('faceIndicator');
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
-        }
-
-        // Create a mock camera feed when real camera is not available
-        function createMockCamera() {
-            const mockCanvas = document.createElement('canvas');
-            mockCanvas.width = 640;
-            mockCanvas.height = 480;
-            const ctx = mockCanvas.getContext('2d');
-            
-            // Create an animated mock feed
-            function drawMockFrame() {
-                // Clear canvas
-                ctx.fillStyle = '#1a1a1a';
-                ctx.fillRect(0, 0, 640, 480);
-                
-                // Draw a border
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 4;
-                ctx.strokeRect(20, 20, 600, 440);
-                
-                // Draw text
-                ctx.fillStyle = '#666';
-                ctx.font = '24px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('Camera Demo Mode', 320, 180);
-                ctx.fillText('Mock Video Feed', 320, 220);
-                
-                // Draw animated elements
-                const time = Date.now() / 1000;
-                const pulse = Math.sin(time * 2) * 0.3 + 0.7;
-                
-                // Animated circle
-                ctx.beginPath();
-                ctx.arc(320, 300, 40 * pulse, 0, 2 * Math.PI);
-                ctx.fillStyle = `rgba(255, 255, 0, ${pulse})`;
-                ctx.fill();
-                
-                // Instructions
-                ctx.fillStyle = '#999';
-                ctx.font = '16px Arial';
-                ctx.fillText('Use localhost:8000 for real camera', 320, 380);
-                ctx.fillText('or grant camera permissions', 320, 400);
-                
-                requestAnimationFrame(drawMockFrame);
-            }
-            
-            drawMockFrame();
-            return mockCanvas.captureStream(30);
         }
 
         // Auto-start camera function

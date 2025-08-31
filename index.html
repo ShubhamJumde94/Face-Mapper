@@ -12,6 +12,9 @@
     1. Serve this file from a localhost server (not file:// protocol)
     2. Use HTTPS or localhost (secure context required for camera)
     3. Grant camera permissions when prompted
+
+    Run the file with: python -m http.server 8000
+    And open the browser to http://localhost:8000
 -->
 <html lang="en">
 <head>
@@ -20,9 +23,9 @@
     <style>
         :root { 
             --bg: transparent; 
-            --led-off: transparent; 
+            --led-off: #121212; 
             --led-on: #ffff00;
-            --grid-bg: transparent;
+            --grid-bg: #000000;
         }
         
         html, body { 
@@ -32,12 +35,25 @@
             font-family: Arial, sans-serif;
         }
         
+        canvas#threeCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 2; /* Bring Three.js canvas above UI for testing */
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Clicks pass through */
+        }
+
+
         .group {
             display: flex;
             flex-direction: row;
             align-items: center;
             gap: 20px;
             justify-content: center;
+            position: relative;
+            z-index: 1;
         }
         
         .container {
@@ -48,17 +64,21 @@
             padding: 20px;
             height: 100%;
             gap: 20px;
+            position: relative;
+            z-index: 1;
         }
         
         .led-board {
             background: var(--grid-bg);
             border-radius: 10px;
             padding: 20px;
-            display: grid;
+            display: grid; /* Restore LED board display */
             grid-template-columns: repeat(16, 1fr);
             gap: 2px;
             width: min(90vmin, 680px);
             height: min(90vmin, 680px);
+            position: relative;
+            z-index: 1;
         }
         
         .led {
@@ -67,12 +87,15 @@
             width: 100%;
             height: 100%;
             transition: all 0.2s ease;
-            cursor: pointer;
+            transform: translateZ(10px);
+            transition: transform 0.3s ease, box-shadow 0.2s ease;
+            perspective: 800px;
         }
         
         .led.on {
             background: var(--led-on);
             box-shadow: 0 0 15px rgba(255, 255, 0, 0.6);
+            transform: translateZ(30px);
         }
         
         .camera-preview {
@@ -121,8 +144,12 @@
         </div>
         
         <div class="group">
-            <div class="led-board" id="ledBoard"></div>
             
+            <canvas id="threeCanvas" style="width:100%; height:100%; display:block;"></canvas>
+            <div class="led-board" id="ledBoard" style="width:100%; height:100%; position:relative;"></div>              
+            
+            
+
             <div class="camera-preview">
                 <video id="video" autoplay muted playsinline></video>
                 <canvas id="debugCanvas"></canvas>
@@ -130,8 +157,24 @@
         </div>
     </div>
 
+        <!-- load UMD build of Three.js locally to expose global THREE -->
+        <script defer src="three.min.js"></script>
+  
+        <!-- standalone Three.js init -->
+        <script>
+          window.addEventListener('load', () => {
+            if (typeof initThreeJS === 'function') {
+              console.log('🔵 Standalone initThreeJS');
+              initThreeJS();
+            } else {
+              console.error('initThreeJS is not defined');
+            }
+          });
+        </script>
+
     <!-- Native Browser Face Detection API -->
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
     <script>
       let faceDetectionLoaded = false;
       let detectionStarted = false;
@@ -169,6 +212,10 @@
         let leds = [];
         let animationId = null;
         let faceIndicator = null;
+        // Three.js globals for reuse
+        let renderer, scene, camera;
+        // Storage for 3D LED cubes
+        let threeLEDCubes = [];
 
         function setupLEDs() {
             const board = document.getElementById('ledBoard');
@@ -547,6 +594,8 @@
             console.log('🔥 APPLYING LED PATTERN - First few rows:', pattern.slice(0, 3));
             let ledsFound = 0;
             let ledsLit = 0;
+            // Use global threeLEDCubes array
+
             
             for (let row = 0; row < 16; row++) {
                 for (let col = 0; col < 16; col++) {
@@ -566,6 +615,21 @@
                 }
             }
             console.log(`Applied pattern: ${ledsFound} LEDs found, ${ledsLit} LEDs lit`);
+
+            // Also apply pattern to 3D cubes and re-render scene
+            threeLEDCubes.forEach((cube, idx) => {
+                const row = Math.floor(idx / 16);
+                const col = idx % 16;
+                if (pattern[row][col] === 1) {
+                    cube.material.color.set(0xffff00);
+                    cube.material.opacity = 1.0;
+                } else {
+                    cube.material.color.set(0x111111);
+                    cube.material.opacity = 0.3;
+                }
+            });
+            // Render updated LED cube colors
+            if (renderer && scene && camera) renderer.render(scene, camera);
         }
 
 
@@ -857,6 +921,48 @@
             document.getElementById('clearBtn').onclick = clearAllLEDs;
             document.getElementById('cameraTestBtn').onclick = autoStartCamera;
         });
+
+        function initThreeJS() {
+            console.log('🟢 initThreeJS called');
+            const canvas = document.getElementById('threeCanvas');
+            // Initialize Three.js objects globally
+            renderer = new THREE.WebGLRenderer({ canvas, alpha: false });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            // Create scene
+            scene = new THREE.Scene();
+            // Set up camera
+            camera = new THREE.PerspectiveCamera(105, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 5);
+            camera.updateProjectionMatrix();
+            
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+
+            // Create LED cube grid
+            threeLEDCubes = []; // Reset grid cubes
+            const cubeSize = 0.4;            
+            const spacing = 0.5;
+            const offset = (16 * spacing) / 2;
+            for (let row = 0; row < 16; row++) {
+                for (let col = 0; col < 16; col++) {
+                    const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+                    const material = new THREE.MeshStandardMaterial({ color: 0x111111, transparent: true, opacity: 0.3 });
+                    const cube = new THREE.Mesh(geometry, material);
+                    cube.position.x = col * spacing - offset;
+                    cube.position.y = -(row * spacing) + offset;
+                    scene.add(cube);
+                    threeLEDCubes.push(cube);
+                }
+            }
+
+            // Initial render of LED cubes
+            renderer.render(scene, camera);
+        }
     </script>
 </body>
 </html>

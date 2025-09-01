@@ -25,7 +25,7 @@
             --bg: transparent; 
             --led-off: #121212; 
             --led-on: #ffff00;
-            --grid-bg: #000000;
+            --grid-bg: transparent;
         }
         
         html, body { 
@@ -157,20 +157,74 @@
         </div>
     </div>
 
-        <!-- load UMD build of Three.js locally to expose global THREE -->
-        <script defer src="three.min.js"></script>
-  
-        <!-- standalone Three.js init -->
-        <script>
-          window.addEventListener('load', () => {
-            if (typeof initThreeJS === 'function') {
-              console.log('🔵 Standalone initThreeJS');
-              initThreeJS();
-            } else {
-              console.error('initThreeJS is not defined');
+    <script type="importmap">
+            {
+                "imports": {
+                    "three": "./three.module.js"
+                }
             }
-          });
-        </script>
+    </script>
+
+    <script type="module">
+            import * as THREE from 'three';
+            import { RoundedBoxGeometry } from './RoundedBoxGeometry.js';
+            // Define initThreeJS globally
+            window.initThreeJS = function initThreeJS() {
+                console.log('🟢 initThreeJS called');
+                const canvas = document.getElementById('threeCanvas');
+                renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
+                renderer.setPixelRatio(window.devicePixelRatio);
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setClearColor(0x000000, 0);
+
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(105, window.innerWidth / window.innerHeight, 0.1, 1000);
+                camera.position.set(0, 0, 5);
+                camera.updateProjectionMatrix();
+
+                scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+                const dl = new THREE.DirectionalLight(0xffffff, 0.8);
+                dl.position.set(5, 10, 7.5);
+                scene.add(dl);
+
+                threeLEDCubes = [];
+                const cubeSize = 0.4;
+                const spacing = 0.5;
+                const offset = (16 * spacing) / 2;
+                for (let row = 0; row < 16; row++) {
+                    for (let col = 0; col < 16; col++) {
+                        const geometry = new RoundedBoxGeometry(cubeSize, cubeSize, cubeSize, 6, 0.05);
+                        const material = new THREE.MeshPhysicalMaterial({
+                            color: 0x121212,
+                            emissive: 0x000000,
+                            emissiveIntensity: 0,
+                            transparent: true,
+                            opacity: 0.3,
+                            roughness: 0.7,
+                            flatShading: false
+                        });
+                        const cube = new THREE.Mesh(geometry, material);
+                        cube.position.x = col * spacing - offset;
+                        cube.position.y = -(row * spacing) + offset;
+                        scene.add(cube);
+                        threeLEDCubes.push(cube);
+                    }
+                }
+                renderer.render(scene, camera);
+            };
+    </script>
+        
+    <script>
+            window.addEventListener('load', () => {
+              if (typeof initThreeJS === 'function') {
+                console.log('🟦 Standalone initThreeJS');
+                initThreeJS();
+              } else {
+                console.error('initThreeJS is not defined');
+              }
+            });
+    </script>
+          
 
     <!-- Native Browser Face Detection API -->
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
@@ -622,9 +676,13 @@
                 const col = idx % 16;
                 if (pattern[row][col] === 1) {
                     cube.material.color.set(0xffff00);
+                    cube.material.emissive.set(0xffff00);
+                    cube.material.emissiveIntensity = 0.6; // glow strength
                     cube.material.opacity = 1.0;
                 } else {
                     cube.material.color.set(0x111111);
+                    cube.material.emissive.set(0x000000);
+                    cube.material.emissiveIntensity = 0;
                     cube.material.opacity = 0.3;
                 }
             });
@@ -922,13 +980,16 @@
             document.getElementById('cameraTestBtn').onclick = autoStartCamera;
         });
 
+        /*
         function initThreeJS() {
             console.log('🟢 initThreeJS called');
             const canvas = document.getElementById('threeCanvas');
-            // Initialize Three.js objects globally
-            renderer = new THREE.WebGLRenderer({ canvas, alpha: false });
+            // Enable alpha for transparent background
+            renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
+            // Make clear color transparent
+            renderer.setClearColor(0x000000, 0);
             // Create scene
             scene = new THREE.Scene();
             // Set up camera
@@ -950,8 +1011,24 @@
             const offset = (16 * spacing) / 2;
             for (let row = 0; row < 16; row++) {
                 for (let col = 0; col < 16; col++) {
-                    const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-                    const material = new THREE.MeshStandardMaterial({ color: 0x111111, transparent: true, opacity: 0.3 });
+                    // BoxGeometry with segments for softened edges
+                    const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize, 4, 4, 4);
+
+                    // LED cube material with emissive channel for glow
+                    const material = new THREE.MeshPhysicalMaterial({
+                        color: 0x121212,
+                        emissive: 0x121212,
+                        metalness: 0,
+                        roughness: 0,
+                        transmission: 1,
+                        thickness: 1,
+                        ior: 1.45,
+                        emissiveIntensity: 0,
+                        transparent: true,
+                        opacity: 1,
+                        flatShading: false
+                    });
+                    
                     const cube = new THREE.Mesh(geometry, material);
                     cube.position.x = col * spacing - offset;
                     cube.position.y = -(row * spacing) + offset;
@@ -963,6 +1040,7 @@
             // Initial render of LED cubes
             renderer.render(scene, camera);
         }
+        */
     </script>
 </body>
 </html>

@@ -161,24 +161,24 @@
     <script type="importmap">
             {
                 "imports": {
-                    "three": "./three.module.js"
+                    "three": "./public/js/three.module.js"
                 }
             }
     </script>
 
     <script type="module">
             import * as THREE from 'three';
-            import { RoundedBoxGeometry } from './RoundedBoxGeometry.js';
-            import { EffectComposer } from './EffectComposer.js';
-            import { RenderPass } from './RenderPass.js';
-            import { UnrealBloomPass } from './UnrealBloomPass.js';
+            import { RoundedBoxGeometry } from './public/js/RoundedBoxGeometry.js';
+            import { EffectComposer } from './public/js/EffectComposer.js';
+            import { RenderPass } from './public/js/RenderPass.js';
+            import { UnrealBloomPass } from './public/js/UnrealBloomPass.js';
             
             let hoveredCube = null;
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
 
             // Define initThreeJS globally
-            window.initThreeJS = function initThreeJS() {
+            function initThreeJS() {
                 console.log('🟢 initThreeJS called');
                 const canvas = document.getElementById('threeCanvas');
                 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, preserveDrawingBuffer: true });
@@ -309,18 +309,20 @@
                 }
                 animate();
 
-            };
+            }
+            
+            // Make initThreeJS globally accessible
+            window.initThreeJS = initThreeJS;
+            
+            // Call initThreeJS when the module loads
+            window.addEventListener('load', () => {
+                console.log('🟦 Module initThreeJS');
+                initThreeJS();
+            });
     </script> 
         
     <script>
-            window.addEventListener('load', () => {
-              if (typeof initThreeJS === 'function') {
-                console.log('🟦 Standalone initThreeJS');
-                initThreeJS();
-              } else {
-                console.error('initThreeJS is not defined');
-              }
-            });
+            // initThreeJS is now called from the module script above
     </script>
           
 
@@ -337,7 +339,7 @@
         try {
           console.log('Loading face-api.js models for detection and expressions...');
           // Use local models directory
-          const MODEL_URL = '/models';
+          const MODEL_URL = '/public/models';
           // Load face-api.js models
           await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
           await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);

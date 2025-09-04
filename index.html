@@ -22,16 +22,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root { 
-            --bg: transparent !important; 
+            --bg: #000000; 
             --led-off: #121212; 
             --led-on: #ffff00;
-            --grid-bg: transparent !important; 
+            --grid-bg: #000000; 
         }
         
         html, body { 
             height: 100%; 
             margin: 0; 
-            background: transparent !important; 
+            background: #000000; 
             font-family: Arial, sans-serif;
             overflow: hidden; /* Prevent scrollbars */
         }
@@ -244,7 +244,6 @@
 
                 const glassMaterial = new THREE.MeshPhysicalMaterial({
                     color: 0x121212,                  // Dark base color
-                    emissive: 0x000000,               // base emissive (black/off)
                     transmission: 1.0,                // Full transparency (like glass)
                     opacity: 1.0,                     // Fully opaque (transmission controls visibility)
                     transparent: true,                // Needed for transmission to work

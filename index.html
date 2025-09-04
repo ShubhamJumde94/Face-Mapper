@@ -417,35 +417,37 @@
             const faceCenterY = y + height / 2;
             const faceSize = Math.max(width, height);
             
-            // Map face features to smiley pattern
-            SMILEY_PATTERN.forEach(([row, col]) => {
-                const index = row * 16 + col;
-                if (leds[index]) {
-                    // Calculate intensity based on face position and size
-                    const ledCenterX = (col + 0.5) * (videoWidth / 16);
-                    const ledCenterY = (row + 0.5) * (videoHeight / 16);
-                    
-                    // Distance from face center to LED
-                    const distance = Math.sqrt(
-                        Math.pow(ledCenterX - faceCenterX, 2) + 
-                        Math.pow(ledCenterY - faceCenterY, 2)
-                    );
-                    
-                    // Normalize distance by face size
-                    const normalizedDistance = distance / faceSize;
-                    
-                    // Light up LED if it's within the face area
-                    if (normalizedDistance < 0.8) {
-                        const intensity = Math.max(0, 1 - normalizedDistance);
-                        leds[index].classList.add('on');
+            // Simple face area mapping - light up LEDs in face region
+            for (let row = 0; row < 16; row++) {
+                for (let col = 0; col < 16; col++) {
+                    const index = row * 16 + col;
+                    if (leds[index]) {
+                        // Calculate intensity based on face position and size
+                        const ledCenterX = (col + 0.5) * (videoWidth / 16);
+                        const ledCenterY = (row + 0.5) * (videoHeight / 16);
                         
-                        // Adjust brightness based on intensity
-                        if (intensity > 0.5) {
-                            leds[index].style.boxShadow = `0 0 ${15 + 10 * intensity}px rgba(255, 255, 0, ${0.6 + 0.4 * intensity})`;
+                        // Distance from face center to LED
+                        const distance = Math.sqrt(
+                            Math.pow(ledCenterX - faceCenterX, 2) + 
+                            Math.pow(ledCenterY - faceCenterY, 2)
+                        );
+                        
+                        // Normalize distance by face size
+                        const normalizedDistance = distance / faceSize;
+                        
+                        // Light up LED if it's within the face area
+                        if (normalizedDistance < 0.8) {
+                            const intensity = Math.max(0, 1 - normalizedDistance);
+                            leds[index].classList.add('on');
+                            
+                            // Adjust brightness based on intensity
+                            if (intensity > 0.5) {
+                                leds[index].style.boxShadow = `0 0 ${15 + 10 * intensity}px rgba(255, 255, 0, ${0.6 + 0.4 * intensity})`;
+                            }
                         }
                     }
                 }
-            });
+            }
             
             // Update face indicator
             if (faceIndicator) {
@@ -479,15 +481,13 @@
                 if (resized.length > 0) {
                     const expr = getDominantExpression(resized[0].expressions);
                     mapSimpleExpressionToLEDs(expr);
-                    // Highlight tags
-                    ['neutral','sad','happy','surprised','angry'].forEach(tag=>{
-                        const el=document.getElementById(`tag-${tag}`);
-                        if(el) el.classList.toggle('active', tag===expr);
-                    });
+                    // Removed tag highlighting - elements not needed
                 } else {
                     clearAllLEDs();
-                    ['neutral','sad','happy','surprised','angry'].forEach(tag=>{document.getElementById(`tag-${tag}`)?.classList.remove('active');});
-                    faceIndicator?.classList.remove('detected'); faceIndicator.textContent='';
+                    if (faceIndicator) {
+                        faceIndicator.classList.remove('detected');
+                        faceIndicator.textContent = '';
+                    }
                 }
                 
                 animationId = requestAnimationFrame(detectFaces);
@@ -882,9 +882,6 @@
                     
                     isRunning = true;
                     detectFaces();
-                    
-                    document.getElementById('startBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = false;
                 } else {
                     faceIndicator = document.getElementById('faceIndicator');
                 }
@@ -893,9 +890,7 @@
                 const errorMsg = error.message || 'Unknown error';
                 faceIndicator = document.getElementById('faceIndicator');
                 
-                const cameraStatus = document.getElementById('cameraStatus');
-                cameraStatus.textContent = `Camera: Error - ${errorMsg}`;
-                cameraStatus.style.background = 'rgba(255,0,0,0.8)';
+                // Camera error handling - removed cameraStatus reference
                 
                 console.error('Camera start error:', error);
             }
@@ -903,37 +898,7 @@
 
         // Removed duplicate testCameraOnly function - using autoStartCamera instead
 
-        function stopFaceDetection() {
-            isRunning = false;
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-                animationId = null;
-            }
-            
-            // Hide the canvas overlay when face detection stops
-            if (canvas) {
-                canvas.style.display = 'none';
-                console.log('Canvas overlay hidden - face detection stopped');
-            }
-            
-            // Don't stop the camera stream - keep it running
-            // Only stop face detection, but leave camera active
-            
-            // Keep camera status as active
-                const cameraStatus = document.getElementById('cameraStatus');
-            if (video && video.srcObject && video.videoWidth > 0) {
-                cameraStatus.textContent = `Camera: Active (${video.videoWidth}x${video.videoHeight})`;
-                cameraStatus.style.background = 'rgba(0,255,0,0.8)';
-            } else {
-                cameraStatus.textContent = 'Camera: Ready';
-                cameraStatus.style.background = 'rgba(0,0,0,0.8)';
-            }
-            
-            clearAllLEDs();
-            faceIndicator = document.getElementById('faceIndicator');
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-        }
+        // Removed stopFaceDetection function - not needed
 
         // Auto-start camera function
         async function autoStartCamera() {
@@ -954,34 +919,14 @@
                 
                 // Check if we're in a secure context
                 if (!window.isSecureContext) {
-                    console.warn('Not in secure context - using mock camera');
-                    video.srcObject = createMockCamera();
-                    video.style.display = 'block';
-                    video.style.setProperty('transform', 'scaleX(-1)', 'important'); // Mirror the video horizontally
-                    video.play();
-                    
-                    const cameraStatus = document.getElementById('cameraStatus');
-                    if (cameraStatus) {
-                        cameraStatus.textContent = 'Camera: Demo Mode (Use localhost:8000 for real camera)';
-                        cameraStatus.style.background = 'rgba(255,165,0,0.8)';
-                    }
-                    return true;
+                    console.warn('Not in secure context - camera access not available');
+                    return false;
                 }
                 
                 // Check if getUserMedia is available
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    console.warn('getUserMedia not available - using mock camera');
-                    video.srcObject = createMockCamera();
-                    video.style.display = 'block';
-                    video.style.setProperty('transform', 'scaleX(-1)', 'important'); // Mirror the video horizontally
-                    video.play();
-                    
-                    const cameraStatus = document.getElementById('cameraStatus');
-                    if (cameraStatus) {
-                        cameraStatus.textContent = 'Camera: Demo Mode (Media API not supported)';
-                        cameraStatus.style.background = 'rgba(255,165,0,0.8)';
-                    }
-                    return true;
+                    console.warn('getUserMedia not available - camera access not available');
+                    return false;
                 }
                 
                 // Try to request camera access
@@ -1010,11 +955,6 @@
                     video.onloadedmetadata = () => {
                         video.play().then(() => {
                             console.log('Real camera started successfully');
-                            const cameraStatus = document.getElementById('cameraStatus');
-                            if (cameraStatus) {
-                                cameraStatus.textContent = `Camera: Active (${video.videoWidth}x${video.videoHeight})`;
-                                cameraStatus.style.background = 'rgba(0,255,0,0.8)';
-                            }
                             resolve();
                         }).catch(e => {
                             console.error('Video play failed:', e);
@@ -1025,20 +965,8 @@
                 
                 return true;
             } catch (error) {
-                console.error('Camera access failed, falling back to mock camera:', error);
-                
-                // Fallback to mock camera
-                video.srcObject = createMockCamera();
-                video.style.display = 'block';
-                video.style.transform = 'scaleX(-1)'; // Mirror the video horizontally
-                video.play();
-                
-                const cameraStatus = document.getElementById('cameraStatus');
-                if (cameraStatus) {
-                    cameraStatus.textContent = `Camera: Demo Mode (${error.message})`;
-                    cameraStatus.style.background = 'rgba(255,165,0,0.8)';
-                }
-                return true;
+                console.error('Camera access failed:', error);
+                return false;
             }
         }
 
@@ -1072,11 +1000,7 @@
                 }
             }
             
-            document.getElementById('startBtn').onclick = startFaceDetection;
-            document.getElementById('stopBtn').onclick = stopFaceDetection;
-            document.getElementById('testBtn').onclick = testSmileyPattern;
-            document.getElementById('clearBtn').onclick = clearAllLEDs;
-            document.getElementById('cameraTestBtn').onclick = autoStartCamera;
+            // Removed button event listeners - buttons not needed
         });
 
         /*

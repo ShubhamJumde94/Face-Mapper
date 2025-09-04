@@ -1,0 +1,20 @@
+{
+  "name": "face-mapper",
+  "version": "1.0.0",
+  "description": "Face detection and LED mapping application",
+  "main": "index.html",
+  "scripts": {
+    "dev": "python -m http.server 8000",
+    "start": "python -m http.server 8000"
+  },
+  "keywords": [
+    "face-detection",
+    "led-mapping",
+    "threejs",
+    "face-api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}

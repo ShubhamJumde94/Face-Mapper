@@ -22,7 +22,7 @@ const LuminosityHighPassShader = {
 		'tDiffuse': { value: null },
 		'luminosityThreshold': { value: 1.0 },
 		'smoothWidth': { value: 1.0 },
-		'defaultColor': { value: new Color( 0x121212 ) },
+		'defaultColor': { value: new Color( 0xFFFFFF ) },
 		'defaultOpacity': { value: 1.0 }
 
 	},

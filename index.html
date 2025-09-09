@@ -216,7 +216,7 @@
                 const bloomPass = new UnrealBloomPass(
                     new THREE.Vector2(window.innerWidth, window.innerHeight),
                     0.8, // strength
-                    0.5, // radius
+                    0.01, // radius
                     0.5, // threshold
                 );
                 composer.addPass(bloomPass);
@@ -391,6 +391,7 @@
                     leds.push(led);
                 }
             }
+            console.log(`✅ setupLEDs() completed - ${leds.length} LEDs created`);
         }
 
         function clearAllLEDs() {
@@ -457,7 +458,31 @@
         }
 
         async function detectFaces() {
-            if (!isRunning || !faceDetectionLoaded || !video || !canvas) return;
+            // Check if we should stop detection
+            if (!isRunning || !faceDetectionLoaded || !video || !canvas) {
+                // If camera is not available, show default expression and stop
+                if (!video || !video.srcObject) {
+                    showDefaultExpression();
+                }
+                // Cancel any pending animation frame
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
+                return;
+            }
+            
+            // Additional check for camera state
+            if (!video.srcObject || video.paused) {
+                console.log('Camera not available or paused - stopping detection');
+                isRunning = false;
+                showDefaultExpression();
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
+                return;
+            }
             
             try {
                 // Create canvas context if not exists
@@ -482,19 +507,33 @@
                 if (resized.length > 0) {
                     const expr = getDominantExpression(resized[0].expressions);
                     mapSimpleExpressionToLEDs(expr);
-                    // Removed tag highlighting - elements not needed
+                    // Update face indicator
+                    if (faceIndicator) {
+                        faceIndicator.classList.add('detected');
+                        faceIndicator.textContent = `Detected: ${expr}`;
+                    }
                 } else {
-                    clearAllLEDs();
+                    // No face detected, show default expression
+                    showDefaultExpression();
                     if (faceIndicator) {
                         faceIndicator.classList.remove('detected');
-                        faceIndicator.textContent = '';
+                        faceIndicator.textContent = 'No face detected';
                     }
                 }
                 
-                animationId = requestAnimationFrame(detectFaces);
+                // Only continue animation if still running
+                if (isRunning) {
+                    animationId = requestAnimationFrame(detectFaces);
+                }
             } catch (error) {
                 console.error('Face-api detection error:', error);
-                animationId = requestAnimationFrame(detectFaces);
+                // On error, show default expression and stop
+                showDefaultExpression();
+                isRunning = false;
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
             }
         }
 
@@ -518,6 +557,56 @@
             return dominantExpression;
         }
 
+        // Show default expression (happy face) when camera is off
+        let currentExpression = null;
+        function showDefaultExpression() {
+            // Only update if we're not already showing the default expression
+            if (currentExpression !== 'default') {
+                console.log('🟡 showDefaultExpression() - showing default happy face');
+                currentExpression = 'default';
+                
+                // Ensure LEDs are ready before applying pattern
+                if (!leds || leds.length === 0) {
+                    console.log('LEDs not ready for default expression, retrying...');
+                    setTimeout(() => showDefaultExpression(), 100);
+                    return;
+                }
+                
+                drawSmileyFace();
+                
+                // Update face indicator to show default state
+                if (faceIndicator) {
+                    faceIndicator.classList.remove('detected');
+                    faceIndicator.textContent = 'Default: Happy';
+                }
+            }
+        }
+
+        // Stop face detection and clean up
+        function stopFaceDetection() {
+            console.log('Stopping face detection...');
+            isRunning = false;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            showDefaultExpression();
+        }
+
+        // Handle camera state changes
+        function handleCameraStateChange() {
+            if (video && video.srcObject && !video.paused) {
+                console.log('Camera is active - starting face detection');
+                if (faceDetectionLoaded) {
+                    isRunning = true;
+                    detectFaces();
+                }
+            } else {
+                console.log('Camera is not available - stopping detection and showing default expression');
+                stopFaceDetection();
+            }
+        }
+
         // Simple expression mapping based on face data
         function mapSimpleExpressionToLEDs(expression) {
             console.log('🔥 mapSimpleExpressionToLEDs called with:', typeof expression, JSON.stringify(expression));
@@ -526,6 +615,9 @@
             // Map detected expression to appropriate LED pattern
             const cleanExpression = String(expression).trim().toLowerCase();
             console.log('🎯 About to switch on cleaned:', cleanExpression);
+            
+            // Update current expression tracking
+            currentExpression = cleanExpression;
             
             switch (cleanExpression) {
                 case 'happy':
@@ -748,8 +840,13 @@
             console.log('🔥 APPLYING LED PATTERN - First few rows:', pattern.slice(0, 3));
             let ledsFound = 0;
             let ledsLit = 0;
-            // Use global threeLEDCubes array
-
+            
+            // Ensure LEDs are available, if not wait and retry
+            if (!leds || leds.length === 0) {
+                console.log('LEDs not ready, retrying in 50ms...');
+                setTimeout(() => applyLEDPattern(pattern), 50);
+                return;
+            }
             
             for (let row = 0; row < 16; row++) {
                 for (let col = 0; col < 16; col++) {
@@ -825,12 +922,14 @@
                     throw new Error('Video element not found');
                 }
                 
-                // If camera is not already running, start it
+                // If camera is not already running, try to start it
                 if (!video.srcObject) {
                     console.log('No existing camera stream, starting new one...');
                     const cameraStarted = await autoStartCamera();
                     if (!cameraStarted) {
-                        throw new Error('Failed to start camera');
+                        console.log('Camera not available - showing default expression');
+                        showDefaultExpression();
+                        return;
                     }
                 } else {
                     console.log('Camera stream already active, checking status...');
@@ -873,6 +972,8 @@
                         console.log('Video play successful');
                     } catch (playError) {
                         console.error('Video play failed:', playError);
+                        showDefaultExpression();
+                        return;
                     }
                 } else {
                     console.log('Video is already playing');
@@ -885,15 +986,16 @@
                     detectFaces();
                 } else {
                     faceIndicator = document.getElementById('faceIndicator');
+                    showDefaultExpression();
                 }
                 
             } catch (error) {
                 const errorMsg = error.message || 'Unknown error';
                 faceIndicator = document.getElementById('faceIndicator');
                 
-                // Camera error handling - removed cameraStatus reference
-                
                 console.error('Camera start error:', error);
+                // Show default expression on any error
+                showDefaultExpression();
             }
         }
 
@@ -971,15 +1073,62 @@
             }
         }
 
+        // Monitor camera state periodically
+        let lastCameraState = null;
+        let monitoringInterval = null;
+        function startCameraMonitoring() {
+            // Clear any existing monitoring
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+            }
+            
+            monitoringInterval = setInterval(() => {
+                if (video) {
+                    const cameraActive = video.srcObject && !video.paused && video.readyState >= 2;
+                    const shouldBeRunning = cameraActive && faceDetectionLoaded;
+                    
+                    // Only act if camera state has actually changed
+                    if (shouldBeRunning !== lastCameraState) {
+                        lastCameraState = shouldBeRunning;
+                        
+                        if (shouldBeRunning && !isRunning) {
+                            console.log('Camera became active - starting detection');
+                            handleCameraStateChange();
+                        } else if (!shouldBeRunning && isRunning) {
+                            console.log('Camera became inactive - stopping detection');
+                            stopFaceDetection();
+                        }
+                    }
+                }
+            }, 3000); // Check every 3 seconds (even less frequent)
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             setupLEDs();
+            
+            // Wait for LEDs to be fully rendered before showing default expression
+            setTimeout(() => {
+                console.log('🟡 Initializing default expression after LED setup');
+                showDefaultExpression();
+            }, 100);
 
             // Auto-start camera immediately
             const cameraStarted = await autoStartCamera();
             
             // Initialize face detection
             await initializeFaceDetection();
+            
+            // Final fallback to ensure default expression shows
+            setTimeout(() => {
+                if (currentExpression !== 'default' && (!video || !video.srcObject)) {
+                    console.log('🟡 Final fallback - ensuring default expression shows');
+                    showDefaultExpression();
+                }
+            }, 500);
+            
+            // Start monitoring camera state
+            startCameraMonitoring();
             
             // Check browser compatibility
             const compatibilityIssues = checkBrowserCompatibility();
@@ -988,6 +1137,8 @@
                 statusEl.innerHTML = `Browser Issues: ${compatibilityIssues.join(' ')} <span class="face-indicator" id="faceIndicator"></span>`;
                 statusEl.style.background = '#ff6600';
                 faceIndicator = document.getElementById('faceIndicator');
+                // Ensure default expression shows even with browser issues
+                setTimeout(() => showDefaultExpression(), 200);
             } else {
                 if (cameraStarted) {
                     // Both camera and face detection are ready - auto-start detection
@@ -995,9 +1146,11 @@
                 } else {
                     const statusText = cameraStarted ? 
                         'Camera active! Waiting for face detection to load...' : 
-                        'Browser compatible! Camera access needed - click Start to try again...';
+                        'LED Face Mapper Ready! Camera off - showing default happy face. Turn on camera to detect expressions.';
                     document.getElementById('status').innerHTML = `${statusText} <span class="face-indicator" id="faceIndicator"></span>`;
-                faceIndicator = document.getElementById('faceIndicator');
+                    faceIndicator = document.getElementById('faceIndicator');
+                    // Show default expression when camera is not available
+                    setTimeout(() => handleCameraStateChange(), 200);
                 }
             }
             
